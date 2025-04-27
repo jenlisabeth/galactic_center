@@ -159,7 +159,7 @@ async function initSensors(){
   controls.connect();
 
   /* geolocation: proceed even if user says “No” */
-  await requestGeoPerm();
+  requestGeoPerm().then(() => console.log('got position'));
   try{            // optional magnetometer for nicer heading stability
     const mag=new Magnetometer({frequency:60});
     mag.start();
@@ -183,20 +183,22 @@ function animate(){
 
 /* === UI ================================================================ */
 btn.addEventListener("click", async ()=>{
-  errLabel.textContent="";
-  try{
-    await initSensors();     // wait only for motion/orientation; geo may fail
-    gate.hidden=true; hud.hidden=false;
-    animate();
-  }catch(e){
-    errLabel.textContent=e.message;
+  errLabel.textContent = '';
+  try {
+    await requestMotionPerm();   // may throw
+  } catch (e) {
+    console.warn(e);
+    // keep going without live orientation
   }
-});
 
-/* desktop convenience: start immediately if motion sensors aren’t needed */
-if(!(/Mobi|Android|iPhone|iPad/i).test(navigator.userAgent)){
-  btn.click();
-}
+  // start geolocation, renderer, etc.
+  requestGeoPerm();              // we don't block on its result
+  controls.connect();            // harmless on desktop
+  console.log('initSensors finished ✔');   // should appear
+  gate.hidden = true;
+  hud.hidden  = false;
+  animate();
+});
 
 /* handle resize */
 addEventListener("resize",()=>{
