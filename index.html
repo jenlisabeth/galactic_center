@@ -40,12 +40,11 @@
 <script type="module">
 import * as THREE from "three";
 import {OrbitControls} from 'https://unpkg.com/three@0.165.0/examples/jsm/controls/OrbitControls.js';
-import {DeviceOrientationControls} from 'https://unpkg.com/three@0.165.0/examples/jsm/controls/DeviceOrientationControls.js';
 import {BufferGeometryUtils} from 'https://unpkg.com/three@0.165.0/examples/jsm/utils/BufferGeometryUtils.js';
 import {FontLoader} from 'https://unpkg.com/three@0.165.0/examples/jsm/loaders/FontLoader.js';
 import {TextGeometry} from 'https://unpkg.com/three@0.165.0/examples/jsm/geometries/TextGeometry.js';
 
-/*  ——— SCENE BASICS ——— */
+/* ——— scene ——— */
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1000);
 camera.position.set(0,2,4);
@@ -53,118 +52,87 @@ const renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);
 document.body.appendChild(renderer.domElement);
 
-let orbit=new OrbitControls(camera,renderer.domElement);
-orbit.enableDamping=true;
-let dOrient=null, genericSensor=null;
-
+const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 const hemi=new THREE.HemisphereLight(0xffffff,0x444444,1.2);scene.add(hemi);
-const dir=new THREE.DirectionalLight(0xffffff,.8);dir.position.set(5,10,7);scene.add(dir);
+const dir =new THREE.DirectionalLight(0xffffff,.8);dir.position.set(5,10,7);scene.add(dir);
 
-/*  ——— COMPASS RING & CARDINALS ——— */
-const ring=new THREE.Mesh(
-  new THREE.RingGeometry(1.4,1.45,64),
-  new THREE.MeshBasicMaterial({color:0x555555,side:THREE.DoubleSide})
-);
+/* ——— compass ring & labels ——— */
+const ring=new THREE.Mesh(new THREE.RingGeometry(1.4,1.45,64),
+                          new THREE.MeshBasicMaterial({color:0x555555,side:THREE.DoubleSide}));
 ring.rotation.x=-Math.PI/2;scene.add(ring);
-
-new FontLoader().load('https://unpkg.com/three@0.165.0/examples/fonts/helvetiker_regular.typeface.json',f=>{
-  const mk=(t,a)=>{
-    const m=new THREE.Mesh(
-      new TextGeometry(t,{font:f,size:.12,height:.02}),
-      new THREE.MeshBasicMaterial({color:0xffffff})
-    );
-    m.rotateX(-Math.PI/2);
-    m.position.set(Math.sin(a)*1.45,-.01,Math.cos(a)*1.45);
-    m.lookAt(0,1,0);
-    scene.add(m);
-  };
-  mk('N',0);mk('E',Math.PI/2);mk('S',Math.PI);mk('W',3*Math.PI/2);
+new FontLoader().load('https://unpkg.com/three@0.165/examples/fonts/helvetiker_regular.typeface.json',font=>{
+  const label=(t,a)=>{
+    const m=new THREE.Mesh(new TextGeometry(t,{font,size:.12,height:.02}),
+                           new THREE.MeshBasicMaterial({color:0xffffff}));
+    m.rotateX(-Math.PI/2);m.position.set(Math.sin(a)*1.45,-.01,Math.cos(a)*1.45);m.lookAt(0,1,0);scene.add(m);};
+  label('N',0);label('E',Math.PI/2);label('S',Math.PI);label('W',3*Math.PI/2);
 });
 
-/*  ——— ARROW ——— */
+/* ——— arrow ——— */
 const shaft=new THREE.CylinderGeometry(.03,.03,1,16);
 const head =new THREE.ConeGeometry(.09,.25,16).translate(0,.625,0);
-const arrow=new THREE.Mesh(
-  BufferGeometryUtils.mergeGeometries([shaft,head]).translate(0,.5,0),
-  new THREE.MeshStandardMaterial({color:0xd40000,metalness:.4,roughness:.4})
-);
+const arrow=new THREE.Mesh(BufferGeometryUtils.mergeGeometries([shaft,head]).translate(0,.5,0),
+                           new THREE.MeshStandardMaterial({color:0xd40000,metalness:.4,roughness:.4}));
 scene.add(arrow);
 
-/*  ——— RESIZE ——— */
-addEventListener('resize',()=>{
-  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);
-});
+/* ——— resize ——— */
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
-/*  ——— ASTRONOMY ——— */
-const RA_GC = (17+45/60+40.04/3600)*15*Math.PI/180;
-const DEC_GC= (-29-0/60-28/3600)*Math.PI/180;
-
+/* ——— astronomy ——— */
+const RA_GC =(17+45/60+40.04/3600)*15*Math.PI/180;
+const DEC_GC=(-29-0/60-28/3600)*Math.PI/180;
 const status=document.getElementById('status');
 function julian(d){return d.getTime()/864e5+2440587.5}
-function gmst(d){
-  const jd=julian(d),T=(jd-2451545)/36525;
-  return (280.46061837+360.98564736629*(jd-2451545)+0.000387933*T*T-T*T*T/38710000)%360;
-}
-let lat=0,lon=0;
-navigator.geolocation?.getCurrentPosition(p=>{lat=p.coords.latitude;lon=p.coords.longitude});
-
+function gmst(d){const jd=julian(d),T=(jd-2451545)/36525;return(280.46061837+360.98564736629*(jd-2451545)+.000387933*T*T-T*T*T/38710000)%360;}
+let lat=0,lon=0;navigator.geolocation?.getCurrentPosition(p=>{lat=p.coords.latitude;lon=p.coords.longitude;});
 function updateArrow(){
- const now=new Date();
- const lst=((gmst(now)+lon)%360)*Math.PI/180;
- const ha=lst-RA_GC;
- const sinAlt=Math.sin(DEC_GC)*Math.sin(lat*Math.PI/180)+Math.cos(DEC_GC)*Math.cos(lat*Math.PI/180)*Math.cos(ha);
- const alt=Math.asin(sinAlt);
- const cosAz=(Math.sin(DEC_GC)-Math.sin(alt)*Math.sin(lat*Math.PI/180))/(Math.cos(alt)*Math.cos(lat*Math.PI/180));
- let az=Math.acos(cosAz);if(Math.sin(ha)>0) az=2*Math.PI-az;
- const dirVec=new THREE.Vector3(
-   Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)
- ).normalize();
- arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dirVec);
- status.textContent=`Az ${ (az*180/Math.PI).toFixed(1) }° | Alt ${ (alt*180/Math.PI).toFixed(1) }°`;
+  const now=new Date(),lst=((gmst(now)+lon)%360)*Math.PI/180,ha=lst-RA_GC;
+  const sinAlt=Math.sin(DEC_GC)*Math.sin(lat*Math.PI/180)+Math.cos(DEC_GC)*Math.cos(lat*Math.PI/180)*Math.cos(ha);
+  const alt=Math.asin(sinAlt);
+  const cosAz=(Math.sin(DEC_GC)-Math.sin(alt)*Math.sin(lat*Math.PI/180))/(Math.cos(alt)*Math.cos(lat*Math.PI/180));
+  let az=Math.acos(cosAz);if(Math.sin(ha)>0)az=2*Math.PI-az;
+  const v=new THREE.Vector3(Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)).normalize();
+  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),v);
+  status.textContent=`Az ${(az*180/Math.PI).toFixed(1)}° | Alt ${(alt*180/Math.PI).toFixed(1)}°`;
 }
 setInterval(updateArrow,1000);updateArrow();
 
-/*  ——— SENSOR HOOKUP ——— */
+/* ——— sensor glue (replaces old DeviceOrientationControls) ——— */
 const motionBtn=document.getElementById('motionBtn');
-motionBtn.addEventListener('click',attemptEnableOrientation);
+motionBtn.addEventListener('click',initSensors);
 
-function attemptEnableOrientation(){
-  async function enable(){
-    /* iOS 13+ */
-    if(typeof DeviceOrientationEvent!=='undefined' &&
+function initSensors(){
+  async function enableIOSPermission(){
+    if(typeof DeviceOrientationEvent!=='undefined'&&
        typeof DeviceOrientationEvent.requestPermission==='function'){
-       const p=await DeviceOrientationEvent.requestPermission();
-       if(p!=='granted') throw 'denied';
+      const p=await DeviceOrientationEvent.requestPermission();
+      if(p!=='granted')throw 'denied';
     }
-    dOrient=new DeviceOrientationControls(camera);dOrient.connect();
-    orbit.enabled=false;
-    motionBtn.classList.add('hidden');
   }
-  enable().catch(()=>{
-    /* try Generic Sensor API as fallback */
-    if('AbsoluteOrientationSensor' in window){
-      genericSensor=new AbsoluteOrientationSensor({frequency:60});
-      genericSensor.addEventListener('reading',()=>{
-         const q=genericSensor.quaternion; // [x,y,z,w]
-         camera.quaternion.set(q[0],q[1],q[2],q[3]);
-      });
-      genericSensor.start();
-      orbit.enabled=false;
-      motionBtn.classList.add('hidden');
-    } else {
-      alert('Device sensors not available; using touch controls.');
-      motionBtn.classList.add('hidden');
-    }
-  });
+  enableIOSPermission().then(startSensors).catch(()=>{alert('Device sensors not available; using touch controls.');motionBtn.classList.add('hidden');});
 }
 
-/*  ——— RENDER LOOP ——— */
-renderer.setAnimationLoop(()=>{
-  dOrient?.update();
-  orbit.update();
-  renderer.render(scene,camera);
-});
+function startSensors(){
+  orbit.enabled=false;motionBtn.classList.add('hidden');
+  if('AbsoluteOrientationSensor'in window){
+    const sensor=new AbsoluteOrientationSensor({frequency:60});
+    sensor.addEventListener('reading',()=>{const q=sensor.quaternion;camera.quaternion.set(q[0],q[1],q[2],q[3]);});
+    sensor.start();
+  }else{                       /* fallback to deviceorientation */
+    const zee=new THREE.Vector3(0,0,1),euler=new THREE.Euler,screenQ=new THREE.Quaternion;
+    addEventListener('deviceorientation',e=>{
+      const alpha=(e.alpha||0)*Math.PI/180,beta=(e.beta||0)*Math.PI/180,gamma=(e.gamma||0)*Math.PI/180,
+            orient=((screen.orientation?.angle)||window.orientation||0)*Math.PI/180;
+      euler.set(beta,alpha,-gamma,'ZXY');
+      camera.quaternion.setFromEuler(euler);
+      screenQ.setFromAxisAngle(zee,-orient);
+      camera.quaternion.multiply(screenQ);
+    },true);
+  }
+}
+
+/* ——— render loop ——— */
+renderer.setAnimationLoop(()=>{orbit.update();renderer.render(scene,camera);});
 </script>
 </body>
 </html>
