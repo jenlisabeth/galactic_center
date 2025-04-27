@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galactic Center Compass</title>
+    <title>Galactic Center Compass V2</title>
     <style>
         body {
             margin: 0;
@@ -31,7 +31,7 @@
             padding: 10px;
             border-radius: 5px;
             font-size: 12px;
-            max-width: calc(100% - 40px); /* Prevent overlap with potential permission button */
+            max-width: calc(100% - 40px);
             z-index: 10;
         }
         #permissions {
@@ -74,12 +74,9 @@
         Sun's Orbital Speed: ~230 km/s<br>
         --------------------<br>
         Your Location: <span id="loc">Waiting...</span><br>
-        GC Azimuth: <span id="az">Calculating...</span><br>
-        GC Altitude: <span id="alt">Calculating...</span><br>
-        Device Alpha: <span id="alpha">---</span><br>
-        Device Beta: <span id="beta">---</span><br>
-        Device Gamma: <span id="gamma">---</span><br>
-    </div>
+        GC Azimuth (World): <span id="az">Calculating...</span><br>
+        GC Altitude (World): <span id="alt">Calculating...</span><br>
+        </div>
     <div id="permissions">
         <p>This application needs access to your device's orientation sensors and location to point towards the Galactic Center.</p>
         <button id="permissionButton">Grant Permissions</button>
@@ -89,17 +86,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         let scene, camera, renderer, needle;
-        let controls; // Will hold device orientation data
-        let userLocation = null; // { latitude: null, longitude: null };
+        let userLocation = null;
         let galacticCenterAzAlt = { azimuth: 0, altitude: 0 };
+        let latestDeviceOrientation = new THREE.Quaternion(); // Stores the device orientation
+        let hasOrientationPermission = false;
+        let hasLocationPermission = false;
 
         const infoElement = document.getElementById('info');
         const locElement = document.getElementById('loc');
         const azElement = document.getElementById('az');
         const altElement = document.getElementById('alt');
-        const alphaElement = document.getElementById('alpha');
-        const betaElement = document.getElementById('beta');
-        const gammaElement = document.getElementById('gamma');
         const permissionsDiv = document.getElementById('permissions');
         const permissionButton = document.getElementById('permissionButton');
         const statusElement = document.getElementById('status');
@@ -110,14 +106,22 @@
         const GC_RA_RAD = GC_RA_DEG * Math.PI / 180;
         const GC_DEC_RAD = GC_DEC_DEG * Math.PI / 180;
 
+        // Define the needle's local axis that points forward (matches ConeGeometry's default)
+        const needleLocalPointingAxis = new THREE.Vector3(0, 0, 1); // Cone points along +Z by default
+
         // --- Initialization ---
         function init() {
             // Scene
             scene = new THREE.Scene();
+            // Add faint background grid/stars for orientation reference? Optional.
+            // const gridHelper = new THREE.GridHelper( 100, 10 );
+            // scene.add( gridHelper );
 
-            // Camera
+            // Camera - FIXED POSITION
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 0.1; // Very close to origin, looking out
+            // Position camera slightly above and back, looking at origin
+            camera.position.set(0, 1, 5); // Adjust Z for distance, Y for slight overhead view
+            camera.lookAt(0, 0, 0); // Look at the center where the needle will be
 
             // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -126,19 +130,22 @@
             document.getElementById('container').appendChild(renderer.domElement);
 
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+            const ambientLight = new THREE.AmbientLight(0x606060);
             scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(0, 1, 1);
-            scene.add(directionalLight);
+            const pointLight = new THREE.PointLight(0xffffff, 0.8);
+            camera.add(pointLight); // Attach light to camera so needle is always lit
+            scene.add(camera); // Add camera to scene (required for camera-attached light)
 
-            // Compass Needle Model (Cone pointing along +Y)
-            const geometry = new THREE.ConeGeometry(0.5, 2, 16); // radius, height, segments
-            const material = new THREE.MeshPhongMaterial({ color: 0xff0000, emissive: 0x550000 });
+            // Compass Needle Model (Cone pointing along +Z)
+            const geometry = new THREE.ConeGeometry(0.3, 1.5, 16); // radius, height, segments
+            // Make the base of the cone the 'pointer' end
+            geometry.translate(0, -0.75, 0); // Move center down
+            geometry.rotateX(Math.PI); // Point tip towards +Z
+            const material = new THREE.MeshPhongMaterial({ color: 0xff3333, emissive: 0x551111, side: THREE.DoubleSide });
             needle = new THREE.Mesh(geometry, material);
-            needle.position.set(0, 0, -5); // Place it a bit in front of the camera
-            needle.rotation.x = Math.PI / 2; // Rotate cone base to face -Z initially
+            needle.position.set(0, 0, 0); // Position needle at the origin
             scene.add(needle);
+
 
             // Handle Resizing
             window.addEventListener('resize', onWindowResize, false);
@@ -151,81 +158,55 @@
         }
 
         // --- Permissions Handling ---
-        function checkAndRequestPermissions() {
-            // Check for DeviceOrientationEvent support and permission state
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                // iOS 13+ needs explicit permission
-                DeviceOrientationEvent.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') {
-                            window.addEventListener('deviceorientation', handleOrientation);
-                            requestLocationPermission(); // Proceed to location
-                        } else {
-                            showStatus("Orientation sensor permission denied.");
-                            permissionsDiv.style.display = 'block'; // Show button again if denied
-                            permissionButton.onclick = requestOrientationPermission; // Set button action
-                        }
-                    })
-                    .catch(error => {
-                         console.error("DeviceOrientationEvent permission error:", error);
-                         showStatus("Error requesting orientation permissions.");
-                         // Try adding listener anyway for non-iOS 13+ browsers that might not need requestPermission
-                         window.addEventListener('deviceorientation', handleOrientation);
-                         requestLocationPermission(); // Still try location
-                    });
-            } else if (typeof DeviceOrientationEvent !== 'undefined'){
-                // Assume permission is granted or not needed (older browsers/Android)
-                console.log("DeviceOrientationEvent found, adding listener.");
-                window.addEventListener('deviceorientation', handleOrientation);
-                requestLocationPermission();
-            } else {
-                 showStatus("Device orientation sensors not supported by this browser.");
-                 permissionsDiv.style.display = 'block'; // Show message
-                 permissionButton.style.display = 'none'; // Hide button if feature not supported
-                 document.querySelector('#permissions p').textContent = "Device orientation sensors are not supported by your browser. The compass cannot function.";
-            }
-        }
+         function checkAndRequestPermissions() {
+             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                 // iOS 13+ needs explicit permission
+                 permissionsDiv.style.display = 'block'; // Show button first
+                 permissionButton.onclick = () => {
+                     DeviceOrientationEvent.requestPermission()
+                         .then(permissionState => {
+                             if (permissionState === 'granted') {
+                                 window.addEventListener('deviceorientation', handleOrientation);
+                                 hasOrientationPermission = true;
+                                 checkLocationPermission(); // Proceed to location
+                             } else {
+                                 showStatus("Orientation sensor permission denied.");
+                             }
+                             permissionsDiv.style.display = 'none'; // Hide after attempt
+                         })
+                         .catch(error => {
+                              console.error("DeviceOrientationEvent permission error:", error);
+                              showStatus("Error requesting orientation permissions.");
+                              permissionsDiv.style.display = 'none';
+                         });
+                 };
+             } else if (typeof DeviceOrientationEvent !== 'undefined'){
+                 // Assume permission is granted or not needed (older browsers/Android)
+                 console.log("DeviceOrientationEvent found, adding listener.");
+                 window.addEventListener('deviceorientation', handleOrientation);
+                 hasOrientationPermission = true;
+                 checkLocationPermission(); // Proceed to location
+             } else {
+                  showStatus("Device orientation sensors not supported by this browser.");
+                  permissionsDiv.style.display = 'block';
+                  permissionButton.style.display = 'none';
+                  document.querySelector('#permissions p').textContent = "Device orientation sensors are not supported. Compass cannot function.";
+             }
+         }
 
-         function requestOrientationPermission() {
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') {
-                            window.addEventListener('deviceorientation', handleOrientation);
-                            permissionsDiv.style.display = 'none'; // Hide message/button
-                            clearStatus();
-                            requestLocationPermission(); // Now request location
-                        } else {
-                            showStatus("Orientation sensor permission denied.");
-                        }
-                    })
-                    .catch(error => {
-                         console.error("DeviceOrientationEvent permission error:", error);
-                         showStatus("Error requesting orientation permissions.");
-                    });
-            } else {
-                // Should not happen if button was clicked, but handle defensively
-                console.log("Orientation permission request not applicable.");
-                permissionsDiv.style.display = 'none';
-                clearStatus();
-                requestLocationPermission();
-            }
-        }
-
-        function requestLocationPermission() {
-            if ('geolocation' in navigator) {
-                navigator.geolocation.getCurrentPosition(
-                    handleLocationSuccess,
-                    handleLocationError,
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 } // Options
-                );
-            } else {
-                showStatus("Geolocation is not supported by this browser.");
-                locElement.textContent = "Not Supported";
-                updateGalacticCenterPosition(); // Calculate with default Lat/Lon 0,0
-            }
-        }
-
+         function checkLocationPermission() {
+             if ('geolocation' in navigator) {
+                 navigator.geolocation.getCurrentPosition(
+                     handleLocationSuccess,
+                     handleLocationError,
+                     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } // Force fresh reading
+                 );
+             } else {
+                 showStatus("Geolocation is not supported by this browser.");
+                 locElement.textContent = "Not Supported";
+                 updateGalacticCenterPosition(); // Calculate with default Lat/Lon 0,0
+             }
+         }
 
         function handleLocationSuccess(position) {
             userLocation = {
@@ -234,13 +215,16 @@
             };
             locElement.textContent = `${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}`;
             clearStatus();
+            hasLocationPermission = true;
             updateGalacticCenterPosition(); // Recalculate Az/Alt
         }
 
         function handleLocationError(error) {
             console.error("Geolocation error:", error);
+            hasLocationPermission = false;
             let message = "Location unavailable";
-            switch(error.code) {
+            // ... (error messages as before) ...
+             switch(error.code) {
                 case error.PERMISSION_DENIED:
                     message = "Location permission denied.";
                     break;
@@ -256,71 +240,48 @@
             }
              showStatus(message);
              locElement.textContent = "Error";
-             // Attempt calculation with default 0,0 location
-             updateGalacticCenterPosition();
+             updateGalacticCenterPosition(); // Attempt calculation with default 0,0 location
         }
-
-        // Assign initial button click handler
-        permissionButton.onclick = requestOrientationPermission;
-
 
         // --- Sensor Handling ---
         function handleOrientation(event) {
-            if (!event.alpha || !event.beta || !event.gamma) {
-                 showStatus("Incomplete orientation data received.", true); // Make it temporary
-                 return;
+             if (!event.absolute) {
+                 showStatus("Using relative orientation. Pointing may be inaccurate until device stabilizes or is calibrated.", true);
+             } else {
+                 clearStatus(); // Clear if it was showing relative orientation message
              }
-             clearStatus(); // Clear status if data is now good
 
-            // IMPORTANT: alpha is compass heading (0=North, 90=East, 180=South, 270=West)
-            // beta is front-back tilt (-180 to 180), gamma is left-right tilt (-90 to 90)
-            // We need to convert these Euler angles (order ZXY typically) to a Quaternion
-            // for smooth rotation of the *camera*.
+            if (event.alpha === null || event.beta === null || event.gamma === null) {
+                 // Don't update if data is missing
+                 showStatus("Incomplete orientation data.", true);
+                 return;
+            }
 
-            const alphaRad = event.alpha * Math.PI / 180; // Z axis rotation (heading)
+            // Convert device orientation angles (degrees) to quaternion
+            const alphaRad = event.alpha * Math.PI / 180; // Z axis rotation (compass heading)
             const betaRad = event.beta * Math.PI / 180;   // X axis rotation (pitch)
             const gammaRad = event.gamma * Math.PI / 180; // Y axis rotation (roll)
 
             // Create Euler angle representation in 'ZXY' order (common for device orientation)
-            const euler = new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY'); // Use ZXY order common for DeviceOrientation
+            const euler = new THREE.Euler(betaRad, alphaRad, -gammaRad, 'YXZ'); // Changed order to YXZ as ZXY wasn't quite right. Experimentation needed. Might be device dependent. Also negated gamma.
 
-            // Convert Euler to Quaternion
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromEuler(euler);
+            latestDeviceOrientation.setFromEuler(euler);
 
-            // Apply the INVERSE rotation to the camera to make the scene track the real world
-            // We might need to adjust this based on initial camera orientation and coordinate system.
-            // Let's try applying directly first, then invert if needed.
-            // Experimentation showed that applying the device rotation directly to the camera
-            // makes the scene stay fixed relative to the device screen, which is what we want
-            // so the needle can point relative to the world.
-
-            // Small correction often needed for screen orientation vs sensor frame
-            const screenCorrection = new THREE.Quaternion();
-            // Assuming portrait mode, sensors might align differently.
-            // If landscape, might need -Math.PI/2 or Math.PI/2 around Z.
-            // This might need adjustment based on device/testing.
-             screenCorrection.setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0); // Adjust if needed, e.g., -window.orientation * Math.PI / 180
-
-             // Combine rotations: First screen correction, then device orientation
-             camera.quaternion.copy(quaternion); // Directly apply device orientation
-             // camera.quaternion.multiply(screenCorrection); // Apply screen correction if needed
-
-            // Update displayed values
-            alphaElement.textContent = event.alpha.toFixed(2);
-            betaElement.textContent = event.beta.toFixed(2);
-            gammaElement.textContent = event.gamma.toFixed(2);
-
-            // No need to update GC position here, only when time/location changes
+            // **** CRITICAL: DO NOT ROTATE THE CAMERA ****
+            // camera.quaternion.copy(latestDeviceOrientation); // <-- REMOVED
         }
 
 
         // --- Astronomical Calculations ---
         function updateGalacticCenterPosition() {
-            const now = new Date();
-            const lat = userLocation ? userLocation.latitude : 0; // Default to 0 if no location
-            const lon = userLocation ? userLocation.longitude : 0; // Default to 0 if no location
+            // Only calculate if we have location, otherwise values are meaningless
+            // if (!hasLocationPermission) return; // Or calculate using 0,0 as default? Let's use 0,0 for now.
 
+            const now = new Date();
+            const lat = userLocation ? userLocation.latitude : 0;
+            const lon = userLocation ? userLocation.longitude : 0;
+
+            // ... (JD, GMST, LST, HA calculations remain the same as before) ...
             // 1. Calculate Julian Date (JD)
             const year = now.getUTCFullYear();
             const month = now.getUTCMonth() + 1; // 0-indexed
@@ -328,63 +289,50 @@
             const hour = now.getUTCHours();
             const minute = now.getUTCMinutes();
             const second = now.getUTCSeconds();
-
             const dayFraction = (hour + minute / 60 + second / 3600) / 24;
-
-            if (month <= 2) {
-                year -= 1;
-                month += 12;
-            }
-            const A = Math.floor(year / 100);
+            let Y = year, M = month;
+            if (M <= 2) { Y -= 1; M += 12; }
+            const A = Math.floor(Y / 100);
             const B = 2 - A + Math.floor(A / 4);
-            const JD = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + dayFraction + B - 1524.5;
+            const JD = Math.floor(365.25 * (Y + 4716)) + Math.floor(30.6001 * (M + 1)) + day + dayFraction + B - 1524.5;
 
             // 2. Calculate Greenwich Mean Sidereal Time (GMST) in hours
             const d = JD - 2451545.0; // Days since J2000.0
             const T = d / 36525.0; // Julian centuries since J2000.0
-            let GMST_hours = 6.697374558 + 0.06570982441908 * d + 1.00273790935 * (hour + minute/60 + second/3600) + 0.000026 * T*T;
-            GMST_hours = GMST_hours % 24;
+            let GMST_hours = (18.697374558 + 24.06570982441908 * d) % 24; // Simplified GMST approx from Meeus
+             GMST_hours = (GMST_hours + (hour + minute/60 + second/3600) * 1.002737909) % 24; // Add UT correction
              if (GMST_hours < 0) GMST_hours += 24;
 
-
             // 3. Calculate Local Sidereal Time (LST) in degrees
-            const LST_hours = (GMST_hours + lon / 15) % 24; // lon is degrees east (+), west (-)
-            const LST_deg = LST_hours * 15;
+            const LST_hours = (GMST_hours + lon / 15); // lon is degrees east (+), west (-)
+            const LST_deg = (LST_hours * 15) % 360;
+             if (LST_deg < 0) LST_deg += 360;
             const LST_rad = LST_deg * Math.PI / 180;
 
-
             // 4. Calculate Hour Angle (HA)
-            const HA_deg = (LST_deg - GC_RA_DEG);
+            let HA_deg = (LST_deg - GC_RA_DEG);
+             if (HA_deg < -180) HA_deg += 360;
+             if (HA_deg > 180) HA_deg -= 360;
             const HA_rad = HA_deg * Math.PI / 180;
-
 
             // 5. Convert RA/Dec to Azimuth/Altitude
             const latRad = lat * Math.PI / 180;
-
             const sinAlt = Math.sin(GC_DEC_RAD) * Math.sin(latRad) + Math.cos(GC_DEC_RAD) * Math.cos(latRad) * Math.cos(HA_rad);
-            const altRad = Math.asin(sinAlt); // Altitude in radians
-
+            const altRad = Math.asin(sinAlt);
             const cosAlt = Math.cos(altRad);
-            // Avoid division by zero if object is at zenith
             let azRad = 0;
-            if (cosAlt !== 0) {
+             if (Math.abs(cosAlt) > 0.0001) { // Avoid division by zero near zenith
                 let cosAz = (Math.sin(GC_DEC_RAD) - sinAlt * Math.sin(latRad)) / (cosAlt * Math.cos(latRad));
-                // Clamp cosAz to [-1, 1] due to potential floating point inaccuracies
-                 cosAz = Math.max(-1, Math.min(1, cosAz));
-
+                cosAz = Math.max(-1, Math.min(1, cosAz));
                 let sinAz = (-Math.cos(GC_DEC_RAD) * Math.sin(HA_rad)) / cosAlt;
-                 sinAz = Math.max(-1, Math.min(1, sinAz)); // Clamp
-
-                azRad = Math.atan2(sinAz, cosAz); // Gives angle from North, positive East
+                sinAz = Math.max(-1, Math.min(1, sinAz));
+                azRad = Math.atan2(sinAz, cosAz); // Azimuth East of North, -PI to PI
             } else {
-                 // At zenith, azimuth is undefined, convention often sets it to 0 (North)
-                 azRad = 0;
+                 // At zenith, azimuth is undefined; use LST perhaps? Or 0.
+                 azRad = 0; // Default to North if exactly at zenith
              }
-
-
-            // Convert Azimuth from (-pi, pi] range East of North to [0, 2pi) clockwise from North
             if (azRad < 0) {
-                azRad += 2 * Math.PI;
+                azRad += 2 * Math.PI; // Convert to 0 to 2PI range
             }
 
             galacticCenterAzAlt.azimuth = azRad * 180 / Math.PI; // Store in degrees
@@ -394,76 +342,64 @@
             azElement.textContent = galacticCenterAzAlt.azimuth.toFixed(2) + '°';
             altElement.textContent = galacticCenterAzAlt.altitude.toFixed(2) + '°';
 
-            // Update the needle direction
-            updateNeedleDirection();
+            // Note: Needle direction update happens in animate() using these values
         }
 
 
-         // --- Update Needle Direction ---
-         function updateNeedleDirection() {
-             if (!needle) return; // Don't run if needle not initialized
+         // --- Update Needle Direction (Called from Animate) ---
+         function updateNeedleRotation() {
+             if (!needle || !hasOrientationPermission) return; // Don't rotate if no permission or needle missing
 
+             // 1. Get Target Vector in World Frame (Y-Up, Z-North, X-East)
              const azRad = galacticCenterAzAlt.azimuth * Math.PI / 180;
              const altRad = galacticCenterAzAlt.altitude * Math.PI / 180;
 
-             // Convert Azimuth/Altitude to a target vector in the Three.js world space
-             // Azimuth: 0 = North (+Z), 90 = East (+X), 180 = South (-Z), 270 = West (-X)
-             // Altitude: 0 = Horizon, 90 = Zenith (+Y)
-             // Three.js default camera looks down -Z. Let's align North with +Z for simplicity.
-             // Y is UP. X is East (Right). Z is North (Into screen initially if camera not rotated).
+             const targetVectorWorld = new THREE.Vector3();
+             targetVectorWorld.set(
+                 Math.cos(altRad) * Math.sin(azRad), // X (East)
+                 Math.sin(altRad),                   // Y (Up)
+                 Math.cos(altRad) * Math.cos(azRad)  // Z (North)
+             ).normalize();
 
-             const x = Math.cos(altRad) * Math.sin(azRad); // East component
-             const y = Math.sin(altRad);                   // Up component
-             const z = Math.cos(altRad) * Math.cos(azRad); // North component
+             // 2. Get Inverse Device Orientation (World -> Device)
+             // We use conjugate() which is equivalent to inverse() for normalized quaternions
+             const inverseDeviceOrientation = latestDeviceOrientation.clone().conjugate();
 
-             // Create the target vector. Needle is at (0,0,-5)
-             // We want the needle *tip* to point towards the calculated direction *from the needle's origin*.
-             const targetPosition = new THREE.Vector3(x, y, z);
+             // 3. Transform World Target Vector into Device's Coordinate Frame
+             const targetVectorDevice = targetVectorWorld.clone().applyQuaternion(inverseDeviceOrientation);
 
-             // Since the needle is positioned relative to the camera (which rotates),
-             // and the target vector (x,y,z) is in the world frame, we can make the needle
-             // 'lookAt' this world-frame target point. As the camera rotates with the device,
-             // the needle will appear to point correctly relative to the surroundings.
+             // 4. Calculate the rotation needed to align the needle's local pointing axis
+             //    (needleLocalPointingAxis) with the target vector in the device's frame.
+             const finalNeedleRotation = new THREE.Quaternion();
+             finalNeedleRotation.setFromUnitVectors(needleLocalPointingAxis, targetVectorDevice.normalize());
 
-             // Adjust target based on needle's position relative to origin (if not at 0,0,0)
-             // Target position in world space relative to needle's origin
-             const worldTarget = needle.position.clone().add(targetPosition.normalize().multiplyScalar(5)); // Point 5 units away
-
-             // Use lookAt to point the needle's local +Y axis towards the target
-             // Need an up vector for lookAt. Use world UP unless target is near poles.
-             const upVector = (Math.abs(y) > 0.99) ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
-
-             // Before lookAt, ensure the needle's base orientation is correct.
-             // The ConeGeometry points along +Y. We initially rotated it to point towards camera (-Z).
-             // Let's reset its initial rotation and let lookAt handle everything.
-             needle.quaternion.identity(); // Reset rotation
-             needle.up = new THREE.Vector3(0, 1, 0); // Define the local 'up' for the cone (+Y)
-
-             // Point the needle's +Y axis (the tip) towards the calculated world target
-             needle.lookAt(worldTarget);
-
-              // We might need an additional rotation because the Cone points along its LOCAL Y axis
-              // and lookAt points the LOCAL Z axis towards the target by default.
-              // Let's add a corrective rotation to align Y with the direction Z was pointing.
-              const correctionQuaternion = new THREE.Quaternion();
-              correctionQuaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-              needle.quaternion.multiply(correctionQuaternion);
+             // 5. Apply the calculated rotation to the needle
+             needle.quaternion.slerp(finalNeedleRotation, 0.2); // Use slerp for smoother rotation
+             // needle.quaternion.copy(finalNeedleRotation); // Use copy for immediate rotation
 
          }
 
 
         // --- Animation Loop ---
+        let lastCalcTime = 0;
         function animate() {
             requestAnimationFrame(animate);
 
-            // Update astronomical calculations periodically (e.g., every second)
-            // Use a simple timer check
             const now = performance.now();
-            if (!window.lastCalcTime || now - window.lastCalcTime > 1000) {
-                 updateGalacticCenterPosition(); // Recalculate Az/Alt based on current time
-                 window.lastCalcTime = now;
+
+            // Update astronomical calculations periodically (e.g., every 2 seconds)
+            if (now - lastCalcTime > 2000) { // Update less frequently
+                 if (hasLocationPermission) { // Only calc if we have location permission
+                     updateGalacticCenterPosition();
+                 } else if (!userLocation) {
+                     // If still waiting for initial location attempt, maybe try again
+                     checkLocationPermission();
+                 }
+                 lastCalcTime = now;
              }
 
+            // Update needle rotation based on latest sensor data and calculated position
+            updateNeedleRotation();
 
             // Renderer
             renderer.render(scene, camera);
@@ -480,17 +416,20 @@
         function showStatus(message, temporary = false) {
             statusElement.textContent = message;
             statusElement.style.display = 'block';
+            if (statusTimeout) clearTimeout(statusTimeout);
             if (temporary) {
-                 clearTimeout(statusTimeout); // Clear previous timer if any
-                 statusTimeout = setTimeout(clearStatus, 3000); // Hide after 3 seconds
+                 statusTimeout = setTimeout(clearStatus, 4000); // Hide after 4 seconds
              }
         }
 
         function clearStatus() {
-             clearTimeout(statusTimeout);
-             if (statusElement.style.display !== 'none') {
-                 statusElement.style.display = 'none';
-             }
+            if (statusElement.style.display !== 'none') {
+                 // Only hide if it wasn't replaced by a non-temporary message
+                 if (!statusTimeout || statusElement.textContent === "") { // Basic check
+                    statusElement.style.display = 'none';
+                 }
+            }
+            statusTimeout = null;
         }
 
         // --- Start ---
