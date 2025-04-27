@@ -58,11 +58,17 @@ const controls=new DeviceOrientationControls(camera);
 
 /* background stars */
 scene.background=new THREE.Color(0x000000);
+const starPositions = Array.from(
+  { length: 2000 * 3 },          //  ⧁  multiply by 3
+  () => THREE.MathUtils.randFloatSpread(600)
+);
+
 scene.add(new THREE.Points(
-  new THREE.BufferGeometry().setAttribute('position',
-    new THREE.Float32BufferAttribute(
-      Array.from({length:2000},()=>THREE.MathUtils.randFloatSpread(600)),3)),
-  new THREE.PointsMaterial({size:1,color:0xffffff})
+  new THREE.BufferGeometry().setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(starPositions, 3)
+  ),
+  new THREE.PointsMaterial({ size: 1, color: 0xffffff })
 ));
 
 /* cursor */
