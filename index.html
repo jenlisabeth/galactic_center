@@ -108,4 +108,100 @@
             // Use the same order ('ZXY') for consistency with DOE display interpretation
             // NOTE: Euler conversion from Quaternion can have ambiguities (Gimbal Lock)
             // but provides a familiar Alpha/Beta/Gamma representation.
-            euler
+            euler.setFromQuaternion(rawOrientation, 'ZXY');
+
+            sensorAbsElement.textContent = 'True (AOS)'; // AOS is always absolute
+            sensorAElement.textContent = (euler.z * RAD_TO_DEG).toFixed(1); // Z = Alpha
+            sensorBElement.textContent = (euler.x * RAD_TO_DEG).toFixed(1); // X = Beta
+            sensorGElement.textContent = (euler.y * RAD_TO_DEG).toFixed(1); // Y = Gamma
+            // --- MODIFICATION END ---
+
+
+            // 3. Apply manual offset (if active) to the raw orientation for USE in the app
+            latestDeviceOrientation.copy(rawOrientation); // Start with raw
+            if (isAlignmentActive) {
+                latestDeviceOrientation.multiply(manualNorthOffset); // Apply offset for pointing logic
+            }
+
+            // 4. Populate overrides (Optional - maybe remove if it causes issues)
+            // if (!overrideAInput.value) overrideAInput.value = (euler.z * RAD_TO_DEG).toFixed(1);
+            // if (!overrideBInput.value) overrideBInput.value = (euler.x * RAD_TO_DEG).toFixed(1);
+            // if (!overrideGInput.value) overrideGInput.value = (euler.y * RAD_TO_DEG).toFixed(1);
+        }
+
+        function handleDOEReading(event) {
+            if (overridesEnabled || orientationSensor) return;
+            if (event.alpha === null || event.beta === null || event.gamma === null) return;
+
+            if (!hasDeviceOrientationData) {
+                 hasDeviceOrientationData = true;
+                 sensorStatsDiv.style.display = 'block';
+                 updateModeDisplay('Mobile (DOE)');
+                 showStatus("Using DeviceOrientationEvent. If drift occurs, try figure-8 calibration or Sun/North align.", true);
+             }
+
+            // Display RAW sensor values
+            sensorAbsElement.textContent = event.absolute ? 'True' : 'False (?)';
+            const rawAlpha = event.alpha; const rawBeta = event.beta; const rawGamma = event.gamma;
+            sensorAElement.textContent = rawAlpha.toFixed(1);
+            sensorBElement.textContent = rawBeta.toFixed(1);
+            sensorGElement.textContent = rawGamma.toFixed(1);
+
+            // Calculate orientation quaternion from RAW values
+            const alphaRad = rawAlpha * DEG_TO_RAD; const betaRad = rawBeta * DEG_TO_RAD; const gammaRad = rawGamma * DEG_TO_RAD;
+            const euler = new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY');
+            const currentOrientation = new THREE.Quaternion().setFromEuler(euler);
+
+            // Screen orientation adjustment
+            const screenOrientation = window.orientation || 0;
+            const screenAdj = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -screenOrientation * DEG_TO_RAD);
+            currentOrientation.multiply(screenAdj);
+
+            // Store the potentially offset orientation for needle pointing
+            latestDeviceOrientation.copy(currentOrientation); // Start with calculated orientation
+            if (isAlignmentActive) {
+                latestDeviceOrientation.multiply(manualNorthOffset); // Apply offset
+            }
+
+            // Populate override inputs if empty, using RAW values
+            if (!overrideAInput.value) overrideAInput.value = rawAlpha.toFixed(1);
+            if (!overrideBInput.value) overrideBInput.value = rawBeta.toFixed(1);
+            if (!overrideGInput.value) overrideGInput.value = rawGamma.toFixed(1);
+        }
+
+        // --- Override Logic (Same as V6) ---
+        function handleOverrideToggle() { /* ... Same as V6 ... */ overridesEnabled = overrideCheckbox.checked; overrideInputsFieldset.disabled = !overridesEnabled; updateModeDisplay(); if (overridesEnabled) { showStatus("Manual override mode enabled.", false); applyOverrides(); sensorStatsDiv.style.display = 'none'; } else { clearStatus(); if (hasDeviceOrientationData) sensorStatsDiv.style.display = 'block'; if(locationPermissionGranted) calculateCelestialPositions(); } if (!overridesEnabled && isAlignmentActive) { resetManualAlignment(); } }
+        function applyOverrides() { /* ... Same as V6 ... */ if (!overridesEnabled) return; const alpha = parseFloat(overrideAInput.value) || 0; const beta = parseFloat(overrideBInput.value) || 0; const gamma = parseFloat(overrideGInput.value) || 0; const alphaRad = alpha * DEG_TO_RAD; const betaRad = beta * DEG_TO_RAD; const gammaRad = gamma * DEG_TO_RAD; const euler = new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY'); latestDeviceOrientation.setFromEuler(euler); const lat = parseFloat(overrideLatInput.value); const lon = parseFloat(overrideLonInput.value); if (!isNaN(lat) && !isNaN(lon)) { userLocation = { latitude: lat, longitude: lon }; locElement.textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)} (Override)`; locationPermissionGranted = true; calculateCelestialPositions(); } else { showStatus("Invalid override Lat/Lon.", true); locationPermissionGranted = false; } showStatus("Override values applied.", true); }
+        function populateOverrideInputs() { /* ... Same as V6 ... */ if (!overridesEnabled) { if (userLocation) { overrideLatInput.value = userLocation.latitude.toFixed(4); overrideLonInput.value = userLocation.longitude.toFixed(4); } if (!overrideAInput.value) overrideAInput.value = 0; if (!overrideBInput.value) overrideBInput.value = 0; if (!overrideGInput.value) overrideGInput.value = 0; } }
+
+
+        // --- Astronomical Calculations (Same as V6) ---
+        function calculateCelestialPositions() { /* ... Same as V6 ... */ if (!locationPermissionGranted) { gcAzElement.textContent = "---"; gcAltElement.textContent = "---"; sunAzElement.textContent = "---"; sunAltElement.textContent = "---"; return; } const now = new Date(); const lat = userLocation.latitude; const lon = userLocation.longitude; const gcPos = calculateAzAlt(now, lat, lon, GC_RA_DEG, GC_DEC_DEG); galacticCenterAzAlt = gcPos; gcAzElement.textContent = gcPos.azimuth.toFixed(1); gcAltElement.textContent = gcPos.altitude.toFixed(1); const sunPos = calculateSunPosition(now, lat, lon); sunAzAlt = sunPos; sunAzElement.textContent = sunPos.azimuth.toFixed(1); sunAltElement.textContent = sunPos.altitude.toFixed(1); }
+        function calculateSunPosition(date, lat, lon) { /* ... Same as V6 ... */ const year = date.getUTCFullYear(), month = date.getUTCMonth() + 1, day = date.getUTCDate(); const hour = date.getUTCHours(), minute = date.getUTCMinutes(), second = date.getUTCSeconds(); const dayFraction = (hour + minute / 60 + second / 3600) / 24; let Y = year, M = month; if (M <= 2) { Y -= 1; M += 12; } const A = Math.floor(Y / 100); const B = 2 - A + Math.floor(A / 4); const JD = Math.floor(365.25 * (Y + 4716)) + Math.floor(30.6001 * (M + 1)) + day + dayFraction + B - 1524.5; const n = JD - 2451545.0; const L = (280.460 + 0.9856474 * n) % 360; const g = (357.528 + 0.9856003 * n) % 360; const lambda = L + 1.915 * Math.sin(g * DEG_TO_RAD) + 0.020 * Math.sin(2 * g * DEG_TO_RAD); const epsilon = 23.439 - 0.0000004 * n; const lambdaRad = lambda * DEG_TO_RAD; const epsilonRad = epsilon * DEG_TO_RAD; const sinLambda = Math.sin(lambdaRad); const cosLambda = Math.cos(lambdaRad); const sinEpsilon = Math.sin(epsilonRad); const cosEpsilon = Math.cos(epsilonRad); let RA_rad = Math.atan2(cosEpsilon * sinLambda, cosLambda); if (RA_rad < 0) RA_rad += 2 * Math.PI; const Dec_rad = Math.asin(sinEpsilon * sinLambda); const RA_deg = RA_rad * RAD_TO_DEG; return calculateAzAlt(date, lat, lon, RA_deg, Dec_rad * RAD_TO_DEG); }
+        function calculateAzAlt(date, lat, lon, RA_deg, Dec_deg) { /* ... Same as V6 ... */ const hour = date.getUTCHours(), minute = date.getUTCMinutes(), second = date.getUTCSeconds(); const dayFraction = (hour + minute / 60 + second / 3600) / 24; const year = date.getUTCFullYear(), month = date.getUTCMonth() + 1, day = date.getUTCDate(); let Y = year, M = month; if (M <= 2) { Y -= 1; M += 12; } const A = Math.floor(Y / 100); const B = 2 - A + Math.floor(A / 4); const JD = Math.floor(365.25 * (Y + 4716)) + Math.floor(30.6001 * (M + 1)) + day + dayFraction + B - 1524.5; const d = JD - 2451545.0; let GMST_hours = (18.697374558 + 24.06570982441908 * d) % 24; GMST_hours = (GMST_hours + (hour + minute/60 + second/3600) * 1.002737909) % 24; if (GMST_hours < 0) GMST_hours += 24; const LST_hours = (GMST_hours + lon / 15); const LST_deg = (LST_hours * 15) % 360; let HA_deg = (LST_deg - RA_deg); HA_deg = (HA_deg + 180) % 360 - 180; const HA_rad = HA_deg * DEG_TO_RAD; const latRad = lat * DEG_TO_RAD; const Dec_rad = Dec_deg * DEG_TO_RAD; const sinAlt = Math.sin(Dec_rad) * Math.sin(latRad) + Math.cos(Dec_rad) * Math.cos(latRad) * Math.cos(HA_rad); const altRad = Math.asin(sinAlt); const cosAlt = Math.cos(altRad); let azRad = 0; if (Math.abs(cosAlt) > 0.0001) { let cosAz = (Math.sin(Dec_rad) - sinAlt * Math.sin(latRad)) / (cosAlt * Math.cos(latRad)); cosAz = Math.max(-1, Math.min(1, cosAz)); let sinAz = (-Math.cos(Dec_rad) * Math.sin(HA_rad)) / cosAlt; sinAz = Math.max(-1, Math.min(1, sinAz)); azRad = Math.atan2(sinAz, cosAz); } if (azRad < 0) azRad += 2 * Math.PI; return { azimuth: azRad * RAD_TO_DEG, altitude: altRad * RAD_TO_DEG }; }
+
+
+        // --- Manual Alignment (Same as V6) ---
+        function setManualAlignment(targetType = 'North') { /* ... Same as V6 ... */ let currentRawOrientation = new THREE.Quaternion(); let sourceAvailable = false; if (orientationSensor && orientationSensor.quaternion) { currentRawOrientation.fromArray(orientationSensor.quaternion); sourceAvailable = true; } else if (hasDeviceOrientationData) { const alpha = parseFloat(sensorAElement.textContent); const beta = parseFloat(sensorBElement.textContent); const gamma = parseFloat(sensorGElement.textContent); if (!isNaN(alpha) && !isNaN(beta) && !isNaN(gamma)) { const alphaRad = alpha * DEG_TO_RAD; const betaRad = beta * DEG_TO_RAD; const gammaRad = gamma * DEG_TO_RAD; const euler = new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY'); currentRawOrientation.setFromEuler(euler); const screenOrientation = window.orientation || 0; const screenAdj = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -screenOrientation * DEG_TO_RAD); currentRawOrientation.multiply(screenAdj); sourceAvailable = true; } } else if (overridesEnabled) { const alpha = parseFloat(overrideAInput.value) || 0; const beta = parseFloat(overrideBInput.value) || 0; const gamma = parseFloat(overrideGInput.value) || 0; const alphaRad = alpha * DEG_TO_RAD; const betaRad = beta * DEG_TO_RAD; const gammaRad = gamma * DEG_TO_RAD; const euler = new THREE.Euler(betaRad, gammaRad, alphaRad, 'ZXY'); currentRawOrientation.setFromEuler(euler); sourceAvailable = true; } if (!sourceAvailable) { showStatus("Activate sensors or overrides before aligning.", true); return; } let targetWorldQuaternion = new THREE.Quaternion(); if (targetType === 'North') { targetWorldQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); } else if (targetType === 'Sun') { if (!locationPermissionGranted) { showStatus("Location needed for Sun alignment.", true); return; } if (sunAzAlt.altitude < -2) { showStatus("Sun is too low or below horizon for alignment.", true); return; } const sunAzRad = sunAzAlt.azimuth * DEG_TO_RAD; const sunAltRad = sunAzAlt.altitude * DEG_TO_RAD; const targetVectorWorld = new THREE.Vector3(); targetVectorWorld.set( Math.cos(sunAltRad) * Math.sin(sunAzRad), Math.sin(sunAltRad), Math.cos(sunAltRad) * Math.cos(sunAzRad) ).normalize(); const deviceForward = new THREE.Vector3(0, 0, -1); targetWorldQuaternion.setFromUnitVectors(deviceForward, targetVectorWorld); } else { return; } manualNorthOffset = currentRawOrientation.clone().conjugate().multiply(targetWorldQuaternion); isAlignmentActive = true; resetAlignmentButton.disabled = false; alignmentStatusElement.textContent = `${targetType} Aligned`; showStatus(`Manual alignment set to ${targetType}.`, true); latestDeviceOrientation.copy(currentRawOrientation); latestDeviceOrientation.multiply(manualNorthOffset); }
+        function resetManualAlignment() { /* ... Same as V6 ... */ manualNorthOffset.identity(); isAlignmentActive = false; resetAlignmentButton.disabled = true; alignmentStatusElement.textContent = "Inactive"; showStatus("Manual alignment reset.", true); if (orientationSensor) handleAOSReading(); }
+
+
+        // --- Update Needle Rotation (Same as V6) ---
+        function updateNeedleRotation() { /* ... Same as V6 ... */ if (!needleGroup || !locationPermissionGranted) return; const azRad = galacticCenterAzAlt.azimuth * DEG_TO_RAD; const altRad = galacticCenterAzAlt.altitude * DEG_TO_RAD; const targetVectorWorld = new THREE.Vector3(); targetVectorWorld.set( Math.cos(altRad) * Math.sin(azRad), Math.sin(altRad), Math.cos(altRad) * Math.cos(azRad) ).normalize(); let targetVectorFinal; let finalNeedleRotation = new THREE.Quaternion(); if (hasDeviceOrientationData || overridesEnabled) { const inverseDeviceOrientation = latestDeviceOrientation.clone().conjugate(); targetVectorFinal = targetVectorWorld.clone().applyQuaternion(inverseDeviceOrientation); } else { targetVectorFinal = targetVectorWorld.clone(); /* PC Mode */ } const dot = needleLocalPointingAxis.dot(targetVectorFinal); if (dot < -0.99999) { finalNeedleRotation.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI); } else if (dot > 0.99999) { finalNeedleRotation.identity(); } else { finalNeedleRotation.setFromUnitVectors(needleLocalPointingAxis, targetVectorFinal); } needleGroup.quaternion.slerp(finalNeedleRotation, 0.15); }
+
+        // --- Animation Loop (Same as V6) ---
+        let lastCalcTime = 0; const clock = new THREE.Clock();
+        function animate() { /* ... Same as V6 ... */ requestAnimationFrame(animate); const delta = clock.getDelta(); const now = performance.now(); if (locationPermissionGranted && now - lastCalcTime > 5000) { if (!overridesEnabled) { calculateCelestialPositions(); } lastCalcTime = now; } updateNeedleRotation(); if (starPoints) { const colorAttribute = starPoints.geometry.attributes.color; const numToTwinkle = Math.max(1, Math.floor(starCount * 0.005)); for (let i = 0; i < numToTwinkle; i++) { const index = Math.floor(Math.random() * starCount); const newBrightness = Math.random() * 0.6 + 0.4; colorAttribute.setXYZ(index, newBrightness, newBrightness, newBrightness); } colorAttribute.needsUpdate = true; } renderer.render(scene, camera); }
+
+        // --- Utils (Same as V6) ---
+        function onWindowResize() { /* ... Same as V6 ... */ camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        let statusTimeout; function showStatus(message, temporary = false) { /* ... Same as V6 ... */ statusElement.textContent = message; statusElement.style.display = 'block'; clearTimeout(statusTimeout); if (temporary) { statusTimeout = setTimeout(clearStatus, 4000); } } function clearStatus() { /* ... Same as V6 ... */ if (!overrideCheckbox.checked || !statusElement.textContent.includes("override mode")) { if(!isAlignmentActive || !statusElement.textContent.includes("alignment set")){ statusElement.style.display = 'none'; } } statusTimeout = null; }
+        function updateModeDisplay(specificMode = null) { /* ... Same as V6 ... */ let modeText = "PC (No Sensors)"; if (overridesEnabled) { modeText = "Manual Override"; } else if (specificMode) { modeText = specificMode; } else if (hasDeviceOrientationData) { modeText = orientationSensor ? "Mobile (AOS)" : "Mobile (DOE)"; } modeElement.textContent = modeText; } // Removed alignment status from here
+
+        // --- Start ---
+        init();
+        populateOverrideInputs();
+
+    </script>
+</body>
+</html>
