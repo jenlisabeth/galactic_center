@@ -32,179 +32,138 @@
 {
   "imports": {
     "three":
-      "https://unpkg.com/three@0.133.0/build/three.module.js"
+      "https://unpkg.com/three@0.165.0/build/three.module.js"
   }
 }
 </script>
 
 <script type="module">
 import * as THREE from "three";
-import {DeviceOrientationControls} from "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js";
+import {OrbitControls} from 'https://unpkg.com/three@0.165.0/examples/jsm/controls/OrbitControls.js';
+import {DeviceOrientationControls} from 'https://unpkg.com/three@0.165.0/examples/jsm/controls/DeviceOrientationControls.js';
+import {BufferGeometryUtils} from 'https://unpkg.com/three@0.165.0/examples/jsm/utils/BufferGeometryUtils.js';
+import {FontLoader} from 'https://unpkg.com/three@0.165.0/examples/jsm/loaders/FontLoader.js';
+import {TextGeometry} from 'https://unpkg.com/three@0.165.0/examples/jsm/geometries/TextGeometry.js';
 
-/* === constants ========================================================= */
-const GAL_CTR = { ra: THREE.MathUtils.degToRad(266.41683),   // 17h45m40.04s
-                  dec:THREE.MathUtils.degToRad(-29.00781) }; // −29°00′28.1″
-const DIST_PC=8300,  DIST_LY=DIST_PC*3.262,
-      DIST_KM=DIST_PC*3.086e13,  SUN_V=220;
-
-/* === DOM =============================================================== */
-const hud=document.getElementById("hud"),
-      gate=document.getElementById("gate"),
-      btn=document.getElementById("btnStart"),
-      errLabel=document.getElementById("err");
-
-/* === three.js boilerplate ============================================= */
+/*  ——— SCENE BASICS ——— */
 const scene=new THREE.Scene();
-const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,1e4);
-camera.position.set(0,0,4);
-
+const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1000);
+camera.position.set(0,2,4);
 const renderer=new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth,innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const controls=new DeviceOrientationControls(camera);
+let orbit=new OrbitControls(camera,renderer.domElement);
+orbit.enableDamping=true;
+let dOrient=null, genericSensor=null;
 
-/* background stars */
-scene.background=new THREE.Color(0x000000);
-const starPositions = Array.from(
-  { length: 2000 * 3 },          //  ⧁  multiply by 3
-  () => THREE.MathUtils.randFloatSpread(600)
+const hemi=new THREE.HemisphereLight(0xffffff,0x444444,1.2);scene.add(hemi);
+const dir=new THREE.DirectionalLight(0xffffff,.8);dir.position.set(5,10,7);scene.add(dir);
+
+/*  ——— COMPASS RING & CARDINALS ——— */
+const ring=new THREE.Mesh(
+  new THREE.RingGeometry(1.4,1.45,64),
+  new THREE.MeshBasicMaterial({color:0x555555,side:THREE.DoubleSide})
 );
+ring.rotation.x=-Math.PI/2;scene.add(ring);
 
-scene.add(new THREE.Points(
-  new THREE.BufferGeometry().setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(starPositions, 3)
-  ),
-  new THREE.PointsMaterial({ size: 1, color: 0xffffff })
-));
+new FontLoader().load('https://unpkg.com/three@0.165.0/examples/fonts/helvetiker_regular.typeface.json',f=>{
+  const mk=(t,a)=>{
+    const m=new THREE.Mesh(
+      new TextGeometry(t,{font:f,size:.12,height:.02}),
+      new THREE.MeshBasicMaterial({color:0xffffff})
+    );
+    m.rotateX(-Math.PI/2);
+    m.position.set(Math.sin(a)*1.45,-.01,Math.cos(a)*1.45);
+    m.lookAt(0,1,0);
+    scene.add(m);
+  };
+  mk('N',0);mk('E',Math.PI/2);mk('S',Math.PI);mk('W',3*Math.PI/2);
+});
 
-/* cursor */
-const group=new THREE.Group(); scene.add(group);
-const size=1.4, mat=new THREE.MeshBasicMaterial({color:0x0f0,wireframe:true});
-const square=new THREE.Mesh(new THREE.BoxGeometry(size,size*0.02,size),mat);
-square.position.z=-size*0.5; group.add(square);
-const cone=new THREE.Mesh(new THREE.ConeGeometry(size*0.12,size*0.25,4),mat);
-cone.position.z=-size; cone.rotation.x=Math.PI; group.add(cone);
+/*  ——— ARROW ——— */
+const shaft=new THREE.CylinderGeometry(.03,.03,1,16);
+const head =new THREE.ConeGeometry(.09,.25,16).translate(0,.625,0);
+const arrow=new THREE.Mesh(
+  BufferGeometryUtils.mergeGeometries([shaft,head]).translate(0,.5,0),
+  new THREE.MeshStandardMaterial({color:0xd40000,metalness:.4,roughness:.4})
+);
+scene.add(arrow);
 
-/* === utilities ========================================================= */
-let lat=null,lng=null;          // updated by geolocation
+/*  ——— RESIZE ——— */
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
 
-const toRad = d=>d*Math.PI/180;
-function lstMillis(ms,lon){
-  const d=(ms/86400000)+2440587.5-2451545.0;
-  return (280.46061837+360.98564736629*d+lon)%360;
+/*  ——— ASTRONOMY ——— */
+const RA_GC = (17+45/60+40.04/3600)*15*Math.PI/180;
+const DEC_GC= (-29-0/60-28/3600)*Math.PI/180;
+
+const status=document.getElementById('status');
+function julian(d){return d.getTime()/864e5+2440587.5}
+function gmst(d){
+  const jd=julian(d),T=(jd-2451545)/36525;
+  return (280.46061837+360.98564736629*(jd-2451545)+0.000387933*T*T-T*T*T/38710000)%360;
 }
-function radecToAzAlt(ra,dec,φ,λ,t){
-  const ha=toRad(lstMillis(t,λ))-ra,
-        sinAlt=Math.sin(dec)*Math.sin(φ)+Math.cos(dec)*Math.cos(φ)*Math.cos(ha),
-        alt=Math.asin(sinAlt),
-        cosAz=(Math.sin(dec)-Math.sin(alt)*Math.sin(φ))/(Math.cos(alt)*Math.cos(φ));
-  let az=Math.acos(Math.min(Math.max(cosAz,-1),1));
-  if(Math.sin(ha)>0) az=2*Math.PI-az;
-  return {az,alt};
-}
-function azAltToVec({az,alt}){
-  return new THREE.Vector3(
-    Math.cos(alt)*Math.sin(az),
-    Math.cos(alt)*Math.cos(az),
-    Math.sin(alt)).normalize();
-}
-function updateHUD(){
-  const lst=lstMillis(Date.now(),lng??0);
-  hud.textContent=
-`lat  : ${lat!=null?lat.toFixed(4)+"°":"n/a"}
-lon  : ${lng!=null?lng.toFixed(4)+"°":"n/a"}
-LST  : ${lst.toFixed(3)}° (${(lst/15).toFixed(3)} h)
+let lat=0,lon=0;
+navigator.geolocation?.getCurrentPosition(p=>{lat=p.coords.latitude;lon=p.coords.longitude});
 
-Distance
-   km : ${(DIST_KM/1e12).toFixed(3)} ×10¹²
-    ly: ${DIST_LY.toFixed(0)}
-    pc: ${DIST_PC}
-
-Sun’s orbit speed
-   ${SUN_V} km/s`;
+function updateArrow(){
+ const now=new Date();
+ const lst=((gmst(now)+lon)%360)*Math.PI/180;
+ const ha=lst-RA_GC;
+ const sinAlt=Math.sin(DEC_GC)*Math.sin(lat*Math.PI/180)+Math.cos(DEC_GC)*Math.cos(lat*Math.PI/180)*Math.cos(ha);
+ const alt=Math.asin(sinAlt);
+ const cosAz=(Math.sin(DEC_GC)-Math.sin(alt)*Math.sin(lat*Math.PI/180))/(Math.cos(alt)*Math.cos(lat*Math.PI/180));
+ let az=Math.acos(cosAz);if(Math.sin(ha)>0) az=2*Math.PI-az;
+ const dirVec=new THREE.Vector3(
+   Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)
+ ).normalize();
+ arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dirVec);
+ status.textContent=`Az ${ (az*180/Math.PI).toFixed(1) }° | Alt ${ (alt*180/Math.PI).toFixed(1) }°`;
 }
+setInterval(updateArrow,1000);updateArrow();
 
-/* === permission helpers =============================================== */
-async function requestMotionPerm() {
-  /* iOS 13 + Safari & now also supported by Chromium 124 + */
-  async function ask(cls){
-    if (cls && typeof cls.requestPermission==="function")
-      return (await cls.requestPermission())==="granted";
-    return true;
+/*  ——— SENSOR HOOKUP ——— */
+const motionBtn=document.getElementById('motionBtn');
+motionBtn.addEventListener('click',attemptEnableOrientation);
+
+function attemptEnableOrientation(){
+  async function enable(){
+    /* iOS 13+ */
+    if(typeof DeviceOrientationEvent!=='undefined' &&
+       typeof DeviceOrientationEvent.requestPermission==='function'){
+       const p=await DeviceOrientationEvent.requestPermission();
+       if(p!=='granted') throw 'denied';
+    }
+    dOrient=new DeviceOrientationControls(camera);dOrient.connect();
+    orbit.enabled=false;
+    motionBtn.classList.add('hidden');
   }
-  const okOrient = await ask(window.DeviceOrientationEvent);
-  const okMotion = await ask(window.DeviceMotionEvent);
-  if(!okOrient && !okMotion) throw new Error("Motion/orientation permission denied.");
-}
-
-function requestGeoPerm(){
-  return new Promise(res=>{
-    const opts={enableHighAccuracy:true,maximumAge:1e4,timeout:10_000};
-    navigator.geolocation.getCurrentPosition(p=>{
-      lat=p.coords.latitude; lng=p.coords.longitude; res(true);
-      /* keep updating */
-      navigator.geolocation.watchPosition(pos=>{
-        lat=pos.coords.latitude; lng=pos.coords.longitude;
-      },console.error,opts);
-    },()=>res(false),opts);
+  enable().catch(()=>{
+    /* try Generic Sensor API as fallback */
+    if('AbsoluteOrientationSensor' in window){
+      genericSensor=new AbsoluteOrientationSensor({frequency:60});
+      genericSensor.addEventListener('reading',()=>{
+         const q=genericSensor.quaternion; // [x,y,z,w]
+         camera.quaternion.set(q[0],q[1],q[2],q[3]);
+      });
+      genericSensor.start();
+      orbit.enabled=false;
+      motionBtn.classList.add('hidden');
+    } else {
+      alert('Device sensors not available; using touch controls.');
+      motionBtn.classList.add('hidden');
+    }
   });
 }
 
-/* === sensor start ====================================================== */
-async function initSensors(){
-  await requestMotionPerm();      // throws if denied
-  controls.connect();
-
-  /* geolocation: proceed even if user says “No” */
-  requestGeoPerm().then(() => console.log('got position'));
-  try{            // optional magnetometer for nicer heading stability
-    const mag=new Magnetometer({frequency:60});
-    mag.start();
-  }catch{}
-}
-
-/* === main loop ========================================================= */
-function animate(){
-  requestAnimationFrame(animate);
-
-  const t=Date.now();
-  const φ=lat!=null?toRad(lat):0,  λ=lng!=null?toRad(lng):0;
-  const target=azAltToVec(radecToAzAlt(GAL_CTR.ra,GAL_CTR.dec,φ,λ,t));
-  group.lookAt(target);
-  group.rotation.z+=Math.PI;
-
-  controls.update();
+/*  ——— RENDER LOOP ——— */
+renderer.setAnimationLoop(()=>{
+  dOrient?.update();
+  orbit.update();
   renderer.render(scene,camera);
-  updateHUD();
-}
-
-/* === UI ================================================================ */
-btn.addEventListener("click", async ()=>{
-  errLabel.textContent = '';
-  try {
-    await requestMotionPerm();   // may throw
-  } catch (e) {
-    console.warn(e);
-    // keep going without live orientation
-  }
-
-  // start geolocation, renderer, etc.
-  requestGeoPerm();              // we don't block on its result
-  controls.connect();            // harmless on desktop
-  console.log('initSensors finished ✔');   // should appear
-  gate.hidden = true;
-  hud.hidden  = false;
-  animate();
-});
-
-/* handle resize */
-addEventListener("resize",()=>{
-  camera.aspect=innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);
 });
 </script>
 </body>
