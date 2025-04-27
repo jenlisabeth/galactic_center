@@ -28,9 +28,18 @@
   <div id="err" style="color:#f66"></div>
 </div>
 
+<script type="importmap">
+{
+  "imports": {
+    "three":
+      "https://unpkg.com/three@0.133.0/build/three.module.js"
+  }
+}
+</script>
+
 <script type="module">
-import * as THREE from "https://unpkg.com/three@0.133.0/build/three.module.js?module";
-import {DeviceOrientationControls} from "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js?module";
+import * as THREE from "three";
+import {DeviceOrientationControls} from "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js";
 
 /* === constants ========================================================= */
 const GAL_CTR = { ra: THREE.MathUtils.degToRad(266.41683),   // 17h45m40.04s
