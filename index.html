@@ -40,7 +40,7 @@
 <script type="module">
 import * as THREE from "three";
 import {OrbitControls} from 'https://unpkg.com/three@0.165.0/examples/jsm/controls/OrbitControls.js';
-import {BufferGeometryUtils} from 'https://unpkg.com/three@0.165.0/examples/jsm/utils/BufferGeometryUtils.js';
+import {mergeGeometries}   from 'https://unpkg.com/three@0.165/examples/jsm/utils/BufferGeometryUtils.js';
 import {FontLoader} from 'https://unpkg.com/three@0.165.0/examples/jsm/loaders/FontLoader.js';
 import {TextGeometry} from 'https://unpkg.com/three@0.165.0/examples/jsm/geometries/TextGeometry.js';
 
@@ -71,9 +71,10 @@ new FontLoader().load('https://unpkg.com/three@0.165/examples/fonts/helvetiker_r
 /* ——— arrow ——— */
 const shaft=new THREE.CylinderGeometry(.03,.03,1,16);
 const head =new THREE.ConeGeometry(.09,.25,16).translate(0,.625,0);
-const arrow=new THREE.Mesh(BufferGeometryUtils.mergeGeometries([shaft,head]).translate(0,.5,0),
-                           new THREE.MeshStandardMaterial({color:0xd40000,metalness:.4,roughness:.4}));
-scene.add(arrow);
+const arrow = new THREE.Mesh(
+  mergeGeometries([shaft, head]).translate(0, .5, 0),
+  new THREE.MeshStandardMaterial({color: 0xd40000, metalness: .4, roughness: .4})
+);
 
 /* ——— resize ——— */
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
