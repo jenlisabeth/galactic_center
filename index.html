@@ -7,19 +7,21 @@
     html,body{margin:0;padding:0;overflow:hidden;background:#000;color:#0f0;font-family:monospace}
     #hud{position:fixed;top:0;left:0;padding:8px 12px;background:rgba(0,0,0,.6);line-height:1.4;font-size:.85rem;white-space:pre}
     #permission{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-        background:#000;color:#fff;font-family:sans-serif;flex-direction:column;gap:.8rem}
+                background:#000;color:#fff;font-family:sans-serif;flex-direction:column;gap:.8rem}
     #permission button{padding:.6rem 1.2rem;font-size:1rem}
     canvas{display:block}
 </style>
 </head>
 <body>
 
-<div id="hud">initialising…</div>
-<div id="permission" hidden>
+<div id="hud" hidden>initialising…</div>
+
+<!-- Permission gate -->
+<div id="permission">
     <div>This demo needs access to:</div>
     <ul style="margin:0 0 .6rem 1.2rem;text-align:left">
       <li>Location (for your latitude & longitude)</li>
-      <li>Motion/Orientation sensors (to aim the camera)</li>
+      <li>Motion/orientation sensors (to aim the camera)</li>
       <li>(Optionally) Magnetometer</li>
     </ul>
     <button id="btnPermission">Grant permissions & start</button>
@@ -30,14 +32,14 @@ import * as THREE from "https://unpkg.com/three@0.133.0/build/three.module.js";
 import {DeviceOrientationControls} from "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js";
 
 /* ---------- CONSTANTS ---------- */
-const GALACTIC_CENTER = {            // J2000.0
+const GALACTIC_CENTER = {                       // J2000.0
     ra : THREE.MathUtils.degToRad(266.41683),   // 17h45m40.04s
-    dec: THREE.MathUtils.degToRad(-29.00781)    // -29°00′28.1″
+    dec: THREE.MathUtils.degToRad(-29.00781)    // −29°00′28.1″
 };
-const DIST_PC  = 8300;               // Gal-Centre distance ≈8.3 kpc
-const DIST_KM  = DIST_PC * 3.086e13; // km
-const DIST_LY  = DIST_PC * 3.262;    // ly
-const SUN_V_KMS= 220;                // km s-¹  (circular velocity)
+const DIST_PC   = 8300;               // ≈8.3 kpc
+const DIST_KM   = DIST_PC * 3.086e13; // km
+const DIST_LY   = DIST_PC * 3.262;    // ly
+const SUN_V_KMS = 220;                // km s⁻¹
 
 /* ---------- DOM ---------- */
 const hud  = document.getElementById("hud");
@@ -45,8 +47,8 @@ const perm = document.getElementById("permission");
 const btn  = document.getElementById("btnPermission");
 
 /* ---------- THREE SET-UP ---------- */
-const scene = new THREE.Scene();
-const camera= new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1e4);
+const scene   = new THREE.Scene();
+const camera  = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1e4);
 camera.position.set(0,0,4);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -56,45 +58,57 @@ document.body.appendChild(renderer.domElement);
 
 const controls = new DeviceOrientationControls(camera);
 
-/* simple star-like background */
+/* Star-like background */
 scene.background = new THREE.Color(0x000000);
-const stars = new THREE.Points(
-    new THREE.BufferGeometry().setAttribute('position',
-      new THREE.Float32BufferAttribute(Array.from({length:2000},()=>THREE.MathUtils.randFloatSpread(600)),3)),
+scene.add(new THREE.Points(
+    new THREE.BufferGeometry().setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute(
+            Array.from({length:2000},()=>THREE.MathUtils.randFloatSpread(600)),3)),
     new THREE.PointsMaterial({size:1,color:0xffffff})
-);
-scene.add(stars);
+));
 
-/* ---------- CURSOR MODEL ---------- */
-const group = new THREE.Group();
-scene.add(group);
-
-const size = 1.4;
-const squareGeo  = new THREE.BoxGeometry(size,size*0.02,size);
-const material   = new THREE.MeshBasicMaterial({color:0x00ff00,wireframe:true});
-const square     = new THREE.Mesh(squareGeo, material);
-square.position.z = -size*0.5;
-group.add(square);
-
-/* triangular pointer “arrow-head” */
-const cone = new THREE.ConeGeometry(size*0.12, size*0.25, 4);
-const coneMesh = new THREE.Mesh(cone, material);
-coneMesh.position.z = -size;
-coneMesh.rotation.x = Math.PI;
-group.add(coneMesh);
+/* Cursor model */
+const group   = new THREE.Group(); scene.add(group);
+const size    = 1.4;
+const material= new THREE.MeshBasicMaterial({color:0x00ff00,wireframe:true});
+const square  = new THREE.Mesh(new THREE.BoxGeometry(size,size*0.02,size), material);
+square.position.z = -size*0.5; group.add(square);
+const coneMesh= new THREE.Mesh(new THREE.ConeGeometry(size*0.12, size*0.25, 4), material);
+coneMesh.position.z = -size; coneMesh.rotation.x = Math.PI; group.add(coneMesh);
 
 /* ---------- UTILITIES ---------- */
-let lat=0,lng=0;
+let lat = 0, lng = 0;
+const toRad = d => d*Math.PI/180, toDeg = r => r*180/Math.PI;
 
-function toRadians(deg){return deg*Math.PI/180;}
-function toDegrees(rad){return rad*180/Math.PI;}
-
+function getLST(ms, lonDeg){
+    const d = (ms/86400000) + 2440587.5 - 2451545.0;
+    const gmst = 280.46061837 + 360.98564736629*d;
+    return (gmst + lonDeg) % 360;
+}
+function radecToAzAlt(ra,dec,lat,lon,time){
+    const lst  = THREE.MathUtils.degToRad(getLST(time, lon));
+    const ha   = lst - ra;
+    const sinAlt = Math.sin(dec)*Math.sin(lat)+Math.cos(dec)*Math.cos(lat)*Math.cos(ha);
+    const alt = Math.asin(sinAlt);
+    const cosAz = (Math.sin(dec)-Math.sin(alt)*Math.sin(lat))/(Math.cos(alt)*Math.cos(lat));
+    let az = Math.acos(Math.min(Math.max(cosAz,-1),1));
+    if(Math.sin(ha)>0) az = 2*Math.PI - az;
+    return {az,alt};
+}
+function azAltToVector({az,alt}){
+    return new THREE.Vector3(
+        Math.cos(alt)*Math.sin(az),   // x east
+        Math.cos(alt)*Math.cos(az),   // y north
+        Math.sin(alt)                 // z up
+    ).normalize();
+}
 function updateHUD(){
     const lst = getLST(Date.now(), lng);
     hud.textContent =
 `lat  : ${lat.toFixed(4)}°
 lon  : ${lng.toFixed(4)}°
-LST  : ${lst.toFixed(3)} ° (${(lst/15).toFixed(3)} h)
+LST  : ${lst.toFixed(3)}° (${(lst/15).toFixed(3)} h)
 
 Distance
    km : ${(DIST_KM/1e12).toFixed(3)} ×10¹²
@@ -105,96 +119,84 @@ Sun’s orbit speed
    ${SUN_V_KMS} km/s`;
 }
 
-/* sidereal time (approx, accuracy <0.5 s) */
-function getLST(dateMillis, longitudeDeg){
-    const d = (dateMillis/86400000) + 2440587.5 - 2451545.0;
-    const gmst = 280.46061837 + 360.98564736629*d;
-    return (gmst + longitudeDeg) % 360;
-}
-
-/* convert RA/Dec to local horizontal (az deg, alt deg) */
-function radecToAzAlt(ra,dec,lat,lon,dateMillis){
-    const lst  = THREE.MathUtils.degToRad(getLST(dateMillis, lon));
-    const ha   = lst - ra;                 // hour angle
-    const sinAlt = Math.sin(dec)*Math.sin(lat)+Math.cos(dec)*Math.cos(lat)*Math.cos(ha);
-    const alt = Math.asin(sinAlt);
-    const cosAz = (Math.sin(dec)-Math.sin(alt)*Math.sin(lat))/(Math.cos(alt)*Math.cos(lat));
-    let az = Math.acos(Math.min(Math.max(cosAz,-1),1));
-    if(Math.sin(ha)>0) az = 2*Math.PI - az;
-    return {az,alt};
-}
-
-/* az/alt -> THREE vector in ENU coords (x east, y north, z up) */
-function azAltToVector({az,alt}){
-    const x = Math.cos(alt)*Math.sin(az);
-    const y = Math.cos(alt)*Math.cos(az);
-    const z = Math.sin(alt);
-    return new THREE.Vector3(x,y,z).normalize();
-}
-
-/* ---------- SENSOR HANDLERS ---------- */
+/* ---------- SENSOR INITIALISATION ---------- */
 async function startSensors(){
-    /* Some platforms (iOS) require explicit permission */
-    if(typeof DeviceMotionEvent !== "undefined" &&
-       typeof DeviceMotionEvent.requestPermission === "function"){
-        await DeviceMotionEvent.requestPermission().catch(()=>{});
+    /* 1. Motion/orientation permission (needed on iOS 13+; Android just resolves) */
+    if (typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function") {
+        const response = await DeviceMotionEvent.requestPermission();
+        if (response !== "granted") throw new Error("Motion/orientation permission was denied.");
     }
     controls.connect();
-    /* geo */
-    navigator.geolocation.watchPosition(p=>{
-        lat = p.coords.latitude;
-        lng = p.coords.longitude;
-    }, console.error, {enableHighAccuracy:true,maximumAge:1e4});
-    /* magnetometer (optional) */
+
+    /* 2. Geolocation (wrap in a promise so we can await the *first* position) */
+    await new Promise((resolve, reject)=>{
+        const opts = {enableHighAccuracy:true, maximumAge:1e4, timeout:10000};
+        navigator.geolocation.getCurrentPosition(pos=>{
+            lat = pos.coords.latitude;
+            lng = pos.coords.longitude;
+            /* keep updating position in background */
+            navigator.geolocation.watchPosition(p=>{
+                lat = p.coords.latitude;
+                lng = p.coords.longitude;
+            }, console.error, opts);
+            resolve();
+        }, err=>{
+            reject(new Error("Location permission was denied."));
+        }, opts);
+    });
+
+    /* 3. Optional magnetometer (ignore if unavailable) */
     try{
         const mag = new Magnetometer({frequency:60});
-        mag.addEventListener('reading',()=>{
-            // Not used directly (orientation handled by DeviceOrientationControls),
-            // but could be fused here if desired.
-        });
+        mag.addEventListener("reading", ()=>{/* not used here */});
         mag.start();
-    }catch(e){ /* silently ignore if unsupported */ }
+    }catch{/* ignore */}
 }
 
 /* ---------- MAIN LOOP ---------- */
 function animate(){
     requestAnimationFrame(animate);
 
-    /* compute where the galactic centre is in local sky RIGHT NOW */
-    const {az,alt} = radecToAzAlt(GALACTIC_CENTER.ra, GALACTIC_CENTER.dec,
-                                   toRadians(lat), toRadians(lng), Date.now());
-    const targetVec = azAltToVector({az,alt});
-    /* Three.js ENU frame: +X east, +Y north, +Z up.  We point -Z of the cursor “forward” */
-    group.lookAt(targetVec);
-    group.rotation.z += Math.PI; // face square “flat” at user
+    const hor = radecToAzAlt(
+        GALACTIC_CENTER.ra, GALACTIC_CENTER.dec,
+        toRad(lat), toRad(lng), Date.now());
+    group.lookAt(azAltToVector(hor));
+    group.rotation.z += Math.PI;          // make the square face the user
 
-    controls.update();  // tie camera to device orientation
+    controls.update();
     renderer.render(scene,camera);
-
     updateHUD();
 }
 
 /* ---------- PERMISSION GATE ---------- */
-btn.addEventListener('click', async ()=>{
-    perm.hidden = true;
-    await startSensors();
-    animate();
+btn.addEventListener("click", async ()=>{
+    try{
+        await startSensors();          // wait until *both* permissions succeed
+        perm.hidden = true;
+        hud.hidden  = false;
+        animate();
+    }catch(err){
+        alert(err.message);
+    }
 });
-/* auto-show gate on mobile where sensors likely need explicit permission */
-if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent))
-    perm.hidden = false;
-else {            // desktop: start immediately, but ask for geo
+
+/* Show the overlay automatically on mobile; on desktop ask only if geolocation blocked */
+if(!/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
     navigator.permissions?.query({name:"geolocation"}).then(res=>{
-        if(res.state==="granted") { startSensors(); animate(); }
-        else perm.hidden = false;
-    }).catch(()=>{ perm.hidden = false; });
+        if(res.state === "granted"){
+            perm.hidden = true;
+            hud.hidden  = false;
+            startSensors().then(animate);
+        }
+    }).catch(()=>{/* just leave overlay visible */});
 }
 
 /* ---------- RESIZE ---------- */
-addEventListener('resize',()=>{
+addEventListener("resize", ()=>{
     camera.aspect = innerWidth/innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth,innerHeight);
+    renderer.setSize(innerWidth, innerHeight);
 });
 </script>
 </body>
