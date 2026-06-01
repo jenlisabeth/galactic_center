@@ -92,6 +92,8 @@ The camera can orbit independently from the pointing calculation:
 - Use the mouse wheel to zoom in or out.
 - Use `Reset View` to return to the current device-facing view when sensors or manual overrides are active, or to the default view when no orientation source is available.
 - Use `Hide Debug` / `Show Debug` to toggle the debug panels.
+- Drag panel headers to move overlay windows out of the way.
+- Use each panel's `+` / `-` control to collapse or expand it.
 - The green pointer continues to aim toward Sagittarius A*.
 - The sky markers are transformed through the same device-orientation logic as the pointer, so they stay consistent with the current sensor or manual override mode.
 
@@ -141,9 +143,12 @@ Mobile orientation sensors can drift or disagree across browsers. The alignment 
 
 - `Align Top to North`: use this when the top of the phone is physically aimed north.
 - `Align Top to Sun`: use this when the top of the phone is physically aimed at the Sun.
+- `Set Default Pose`: treats the current phone orientation as the neutral/default frame.
 - `Reset Align`: clears the correction offset.
 
 Sun alignment is only available when location is known and the Sun is above or near the horizon.
+
+The top-edge alignment buttons now use the device's top edge axis, not the camera/forward axis. That means "Align Top to North" means exactly what it says: point the top of the phone toward north, then tap the button.
 
 ## Coordinate model
 
@@ -199,6 +204,8 @@ The current version includes several maintenance fixes:
 - Split JavaScript and CSS into `src/app.js` and `src/styles.css`.
 - Added lightweight astronomy tests.
 - Reworked orientation naming around quaternions and 3DoF attitude instead of loose alpha/beta/gamma axis language.
+- Added draggable/collapsible overlay panels for small screens.
+- Fixed top-edge alignment to calibrate the phone's top axis instead of the forward/camera axis.
 - Added a clear error state when Three.js fails to load.
 - Reworked the script into named functions for easier maintenance.
 - Improved small-screen overlay behavior.

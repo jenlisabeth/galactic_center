@@ -176,6 +176,7 @@ const DEG_TO_RAD = Math.PI / 180;
             permissionButton: document.getElementById("permissionButton"),
             alignNorth: document.getElementById("align-north-button"),
             alignSun: document.getElementById("align-sun-button"),
+            setDefaultPose: document.getElementById("set-default-pose-button"),
             resetAlignment: document.getElementById("reset-alignment-button"),
             resetView: document.getElementById("reset-view-button"),
             toggleDebug: document.getElementById("toggle-debug-button")
@@ -194,6 +195,7 @@ const DEG_TO_RAD = Math.PI / 180;
 
             initScene();
             bindControls();
+            initializeOverlayPanels();
             populateOverrideInputs();
             setupSensors();
             requestLocation();
@@ -351,6 +353,7 @@ const DEG_TO_RAD = Math.PI / 180;
             dom.applyOverrides.addEventListener("click", applyOverrides);
             dom.alignNorth.addEventListener("click", () => setManualAlignment("North"));
             dom.alignSun.addEventListener("click", () => setManualAlignment("Sun"));
+            dom.setDefaultPose.addEventListener("click", setDefaultPose);
             dom.resetAlignment.addEventListener("click", resetManualAlignment);
             dom.resetView.addEventListener("click", resetView);
             dom.toggleDebug.addEventListener("click", toggleDebugPanels);
@@ -360,6 +363,91 @@ const DEG_TO_RAD = Math.PI / 180;
             renderer.domElement.addEventListener("pointerup", handleViewPointerUp);
             renderer.domElement.addEventListener("pointercancel", handleViewPointerUp);
             renderer.domElement.addEventListener("wheel", handleViewWheel, { passive: false });
+        }
+
+        function initializeOverlayPanels() {
+            for (const panel of document.querySelectorAll(".ui-overlay")) {
+                if (panel.id === "status" || panel.id === "view-help") continue;
+
+                const title = panel.querySelector("b");
+                if (!title) continue;
+
+                panel.classList.add("panel");
+                title.classList.add("panel-title");
+
+                const header = document.createElement("div");
+                header.className = "panel-header";
+                const toggle = document.createElement("button");
+                toggle.className = "panel-toggle";
+                toggle.type = "button";
+                toggle.textContent = "-";
+                toggle.setAttribute("aria-label", `Collapse ${title.textContent}`);
+
+                panel.insertBefore(header, title);
+                header.append(title, toggle);
+
+                const content = document.createElement("div");
+                content.className = "panel-content";
+                while (header.nextSibling) {
+                    content.appendChild(header.nextSibling);
+                }
+                panel.appendChild(content);
+
+                toggle.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    const collapsed = panel.classList.toggle("collapsed");
+                    toggle.textContent = collapsed ? "+" : "-";
+                    toggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${title.textContent}`);
+                });
+
+                enablePanelDrag(panel, header);
+            }
+        }
+
+        function enablePanelDrag(panel, handle) {
+            let dragging = false;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            handle.addEventListener("pointerdown", (event) => {
+                if (event.target.closest("button, input, label, fieldset")) return;
+
+                const rect = panel.getBoundingClientRect();
+                dragging = true;
+                offsetX = event.clientX - rect.left;
+                offsetY = event.clientY - rect.top;
+                panel.style.left = `${rect.left}px`;
+                panel.style.top = `${rect.top}px`;
+                panel.style.right = "auto";
+                panel.style.bottom = "auto";
+                panel.style.transform = "none";
+                panel.style.zIndex = "30";
+                handle.setPointerCapture(event.pointerId);
+            });
+
+            handle.addEventListener("pointermove", (event) => {
+                if (!dragging) return;
+
+                const rect = panel.getBoundingClientRect();
+                const maxLeft = Math.max(0, window.innerWidth - rect.width);
+                const maxTop = Math.max(0, window.innerHeight - rect.height);
+                const left = clamp(event.clientX - offsetX, 0, maxLeft);
+                const top = clamp(event.clientY - offsetY, 0, maxTop);
+                panel.style.left = `${left}px`;
+                panel.style.top = `${top}px`;
+            });
+
+            function stopDrag(event) {
+                if (!dragging) return;
+                dragging = false;
+                panel.style.zIndex = "10";
+                if (handle.hasPointerCapture(event.pointerId)) {
+                    handle.releasePointerCapture(event.pointerId);
+                }
+            }
+
+            handle.addEventListener("pointerup", stopDrag);
+            handle.addEventListener("pointercancel", stopDrag);
         }
 
         async function setupSensors() {
@@ -782,12 +870,9 @@ const DEG_TO_RAD = Math.PI / 180;
                 return;
             }
 
-            let targetWorldQuaternion;
+            let targetVectorWorld;
             if (targetType === "North") {
-                targetWorldQuaternion = new THREE.Quaternion().setFromUnitVectors(
-                    new THREE.Vector3(0, 0, -1),
-                    new THREE.Vector3(0, 0, 1)
-                );
+                targetVectorWorld = new THREE.Vector3(0, 0, 1);
             } else if (targetType === "Sun") {
                 if (!locationReady) {
                     showStatus("Location is needed for Sun alignment.", true);
@@ -797,21 +882,37 @@ const DEG_TO_RAD = Math.PI / 180;
                     showStatus("The Sun is too low for alignment right now.", true);
                     return;
                 }
-                targetWorldQuaternion = new THREE.Quaternion().setFromUnitVectors(
-                    new THREE.Vector3(0, 0, -1),
-                    azAltToVector(sunAzAlt.azimuth, sunAzAlt.altitude)
-                );
+                targetVectorWorld = azAltToVector(sunAzAlt.azimuth, sunAzAlt.altitude);
             } else {
                 return;
             }
 
-            manualAlignmentOffset.copy(currentRawOrientation.clone().conjugate().multiply(targetWorldQuaternion));
+            const currentTopWorld = deviceTopAxis().applyQuaternion(currentRawOrientation).normalize();
+            const correction = new THREE.Quaternion().setFromUnitVectors(currentTopWorld, targetVectorWorld.normalize());
+            manualAlignmentOffset.copy(correction);
             isAlignmentActive = true;
             dom.resetAlignment.disabled = false;
             dom.alignmentStatus.textContent = `${targetType} Aligned`;
             deviceToWorldQuaternion.copy(currentRawOrientation);
             applyManualAlignmentOffset();
-            showStatus(`Manual alignment set to ${targetType}.`, true);
+            showStatus(`Top-edge alignment set to ${targetType}.`, true);
+        }
+
+        function setDefaultPose() {
+            const currentRawOrientation = readCurrentRawOrientation();
+            if (!currentRawOrientation) {
+                showStatus("Activate sensors or overrides before setting a default pose.", true);
+                return;
+            }
+
+            manualAlignmentOffset.copy(currentRawOrientation.clone().conjugate());
+            isAlignmentActive = true;
+            dom.resetAlignment.disabled = false;
+            dom.alignmentStatus.textContent = "Default Pose";
+            deviceToWorldQuaternion.copy(currentRawOrientation);
+            applyManualAlignmentOffset();
+            resetView();
+            showStatus("Current pose is now the default orientation.", true);
         }
 
         function resetManualAlignment() {
@@ -974,7 +1075,7 @@ const DEG_TO_RAD = Math.PI / 180;
 
         function applyManualAlignmentOffset() {
             if (isAlignmentActive) {
-                deviceToWorldQuaternion.multiply(manualAlignmentOffset);
+                deviceToWorldQuaternion.premultiply(manualAlignmentOffset);
             }
         }
 
@@ -986,6 +1087,10 @@ const DEG_TO_RAD = Math.PI / 180;
                 Math.sin(altitude),
                 Math.cos(altitude) * Math.cos(azimuth)
             ).normalize();
+        }
+
+        function deviceTopAxis() {
+            return new THREE.Vector3(0, 1, 0);
         }
 
         function handleResize() {

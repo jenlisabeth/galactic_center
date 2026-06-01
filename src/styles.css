@@ -85,11 +85,46 @@ input[type="number"] {
             backdrop-filter: blur(5px);
         }
 
-        .ui-overlay b {
-            display: block;
-            margin-bottom: 3px;
+        .ui-overlay.panel {
+            min-width: 150px;
+            touch-action: none;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-height: 22px;
+            margin: -2px -2px 5px;
+            cursor: move;
+            user-select: none;
+        }
+
+        .panel-title {
             color: #fff;
             font-size: 12px;
+            font-weight: 700;
+        }
+
+        .panel-toggle {
+            width: 24px;
+            min-height: 22px;
+            padding: 0;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .panel.collapsed {
+            min-width: 0;
+        }
+
+        .panel.collapsed .panel-content {
+            display: none;
+        }
+
+        .panel.collapsed .panel-header {
+            margin-bottom: -2px;
         }
 
         .value {
