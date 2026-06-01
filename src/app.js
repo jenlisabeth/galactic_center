@@ -268,16 +268,43 @@ const DEG_TO_RAD = Math.PI / 180;
             needleGroup = new THREE.Group();
 
             const material = new THREE.MeshPhongMaterial({ color: 0x42f58d, emissive: 0x064d24 });
-            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.5, 16), material);
-            shaft.rotation.x = Math.PI / 2;
-            shaft.position.z = 0.75;
+            const totalLength = 1.28;
+            const shaftLength = 0.78;
+            const tipLength = totalLength - shaftLength;
+            const halfLength = totalLength / 2;
 
-            const tip = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.4, 16), material);
-            tip.rotation.x = Math.PI / 2;
-            tip.position.z = 1.7;
+            const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, shaftLength), material);
+            shaft.position.z = -halfLength + shaftLength / 2;
+
+            const tip = new THREE.Mesh(createSquaredArrowHeadGeometry(tipLength, 0.54, 0.18), material);
+            tip.position.z = -halfLength + shaftLength;
 
             needleGroup.add(shaft, tip);
             scene.add(needleGroup);
+        }
+
+        function createSquaredArrowHeadGeometry(length, width, depth) {
+            const halfWidth = width / 2;
+            const halfShaft = 0.09;
+            const shape = new THREE.Shape();
+
+            shape.moveTo(-halfShaft, 0);
+            shape.lineTo(-halfWidth, 0);
+            shape.lineTo(0, length);
+            shape.lineTo(halfWidth, 0);
+            shape.lineTo(halfShaft, 0);
+            shape.lineTo(halfShaft, -0.02);
+            shape.lineTo(-halfShaft, -0.02);
+            shape.lineTo(-halfShaft, 0);
+
+            const geometry = new THREE.ExtrudeGeometry(shape, {
+                depth,
+                bevelEnabled: false
+            });
+            geometry.translate(0, 0, -depth / 2);
+            geometry.computeVertexNormals();
+            geometry.rotateX(Math.PI / 2);
+            return geometry;
         }
 
         function createCelestialMarkers() {
