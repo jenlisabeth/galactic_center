@@ -1,0 +1,224 @@
+:root {
+            color-scheme: dark;
+            --panel-bg: rgba(6, 10, 18, 0.78);
+            --panel-border: rgba(180, 210, 255, 0.22);
+            --accent: #42f58d;
+            --warning: #ffb454;
+            --text: #f5f8ff;
+            --muted: #b9c3d6;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            min-height: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.26);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--text);
+            cursor: pointer;
+        }
+
+        button:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+}
+
+#toggle-debug-button {
+    margin-top: 6px;
+    padding: 2px 7px;
+    font-size: 11px;
+}
+
+body.debug-hidden .debug-panel {
+    display: none !important;
+}
+
+input[type="number"] {
+            width: 6.8rem;
+            min-height: 26px;
+            border: 1px solid rgba(255, 255, 255, 0.26);
+            border-radius: 3px;
+            background: rgba(0, 0, 0, 0.4);
+            color: var(--text);
+            padding: 2px 5px;
+        }
+
+        #container {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            z-index: 10;
+            max-width: min(92vw, 260px);
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            background: var(--panel-bg);
+            padding: 8px;
+            font-size: 12px;
+            line-height: 1.45;
+            backdrop-filter: blur(5px);
+        }
+
+        .ui-overlay b {
+            display: block;
+            margin-bottom: 3px;
+            color: #fff;
+            font-size: 12px;
+        }
+
+        .value {
+            color: var(--accent);
+            font-variant-numeric: tabular-nums;
+        }
+
+        #status {
+            top: 10px;
+            left: 10px;
+            display: none;
+            max-width: min(88vw, 520px);
+            border-color: rgba(255, 180, 84, 0.5);
+            background: rgba(72, 44, 6, 0.88);
+            color: #fff4dc;
+        }
+
+        #view-help {
+            left: 50%;
+            bottom: 10px;
+            transform: translateX(-50%);
+            max-width: min(92vw, 520px);
+            color: var(--muted);
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #info {
+            bottom: 10px;
+            left: 10px;
+        }
+
+        #celestial-info {
+            top: 40px;
+            right: 10px;
+            text-align: right;
+        }
+
+        #sensor-stats {
+            top: 40px;
+            left: 10px;
+            display: none;
+        }
+
+        #calibration {
+            right: 10px;
+            bottom: 10px;
+            max-width: min(92vw, 340px);
+        }
+
+        .button-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        #overrides {
+            top: 150px;
+            right: 10px;
+        }
+
+        #overrides label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 4px 0;
+        }
+
+        #overrides fieldset {
+            margin: 6px 0 0;
+            padding: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.26);
+            border-radius: 4px;
+        }
+
+        #overrides legend {
+            padding: 0 4px;
+            color: var(--muted);
+        }
+
+        #permissions {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            z-index: 20;
+            display: none;
+            width: min(88vw, 360px);
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            border-radius: 8px;
+            background: rgba(15, 20, 30, 0.94);
+            padding: 18px;
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        #permissions p {
+            margin: 0 0 14px;
+            color: var(--muted);
+        }
+
+        #permissionButton {
+            padding: 8px 14px;
+            font-size: 15px;
+        }
+
+        @media (max-width: 720px) {
+            .ui-overlay {
+                font-size: 11px;
+            }
+
+            #sensor-stats {
+                top: 86px;
+            }
+
+            #overrides {
+                top: auto;
+                right: 10px;
+                bottom: 92px;
+            }
+
+            #calibration {
+                right: 10px;
+                bottom: 10px;
+                max-width: calc(100vw - 20px);
+            }
+
+            #view-help {
+                display: none;
+            }
+        }

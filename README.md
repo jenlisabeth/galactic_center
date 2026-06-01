@@ -2,7 +2,7 @@
 
 Galactic Center Compass is a small, dependency-light web app that points toward the center of the Milky Way from your current location. It renders a starfield and a green 3D pointer in the browser, then uses geolocation, time, and device orientation data to estimate where the Galactic Center is relative to the device.
 
-The app is implemented as a single static HTML file: `index.html`.
+The app is static and dependency-light: `index.html` loads `src/styles.css` and `src/app.js` directly.
 
 ## What it does
 
@@ -16,17 +16,24 @@ The app is implemented as a single static HTML file: `index.html`.
 - Falls back to `DeviceOrientationEvent` on browsers that support it.
 - Provides manual latitude, longitude, and orientation overrides for desktop testing.
 - Provides manual alignment controls for North and Sun-based calibration.
+- Provides a debug overlay toggle for raw sky/orientation values.
 
 ## Repository structure
 
 ```text
 .
-|-- index.html   # Complete app: markup, styles, and JavaScript
+|-- index.html   # Static app shell
 |-- LICENSE      # Project license
-`-- README.md    # Project documentation
+|-- package.json # Lightweight test command
+|-- README.md    # Project documentation
+|-- src
+|   |-- app.js
+|   `-- styles.css
+`-- tests
+    `-- astronomy.test.js
 ```
 
-There is no build step, package manager, bundler, or server-side component.
+There is no build step, package manager, bundler, or server-side component required to use the app. Node/npm are only for optional local development checks.
 
 ## How to run it
 
@@ -42,7 +49,13 @@ Then open:
 http://localhost:8000
 ```
 
-You can also host the repository with GitHub Pages or another static file host.
+The public app is published through GitHub Pages at:
+
+```text
+https://jenlisabeth.github.io/galactic_center/
+```
+
+GitHub Pages serves the static files directly from the repository after changes are committed and pushed.
 
 ## Browser requirements
 
@@ -78,6 +91,7 @@ The camera can orbit independently from the pointing calculation:
 - Drag or touch-drag to rotate the view around the pointer.
 - Use the mouse wheel to zoom in or out.
 - Use `Reset View` to return to the current device-facing view when sensors or manual overrides are active, or to the default view when no orientation source is available.
+- Use `Hide Debug` / `Show Debug` to toggle the debug panels.
 - The green pointer continues to aim toward Sagittarius A*.
 - The sky markers are transformed through the same device-orientation logic as the pointer, so they stay consistent with the current sensor or manual override mode.
 
@@ -98,11 +112,28 @@ Enable "Overrides" to enter test values manually:
 
 - `Lat`: observer latitude in degrees, from `-90` to `90`.
 - `Lon`: observer longitude in degrees, from `-180` to `180`.
-- `Alpha`: device yaw/Z angle in degrees.
-- `Beta`: device pitch/X angle in degrees.
-- `Gamma`: device roll/Y angle in degrees.
+- `Yaw Z`: manual yaw angle in degrees.
+- `Pitch X`: manual pitch angle in degrees.
+- `Roll Y`: manual roll angle in degrees.
 
 This is useful for desktop debugging, reproducible screenshots, or testing without granting browser permissions.
+
+## Orientation model
+
+The app uses orientation only, not full 6DoF pose.
+
+A true 6DoF device pose has six independent channels:
+
+- Translation: X, Y, and Z position.
+- Rotation: yaw, pitch, and roll.
+
+Ordinary browser motion APIs do not provide reliable world position. This app therefore uses 3DoF attitude data:
+
+- `AbsoluteOrientationSensor` provides a quaternion when the browser exposes the Generic Sensor API.
+- `DeviceOrientationEvent` provides Euler angles named `alpha`, `beta`, and `gamma`; these are treated as a browser fallback format and converted into a quaternion before the app uses them.
+- Manual overrides use yaw, pitch, and roll fields to create a quaternion for desktop testing.
+
+The pointer and sky markers use that quaternion to transform world-space sky vectors into the current device-relative frame. Manual North/Sun alignment applies an additional correction quaternion on top.
 
 ## Manual alignment
 
@@ -141,6 +172,7 @@ Accuracy depends on:
 - Device magnetometer calibration.
 - Local magnetic interference.
 - Whether the browser exposes absolute or relative orientation.
+- The fact that the browser provides attitude, not full 6DoF position.
 - Location accuracy.
 - Correct screen orientation handling.
 - The simplified Sun position calculation.
@@ -164,20 +196,29 @@ The current version includes several maintenance fixes:
 - Added validation for manual latitude and longitude overrides.
 - Added drag/touch orbit view controls.
 - Added Sun, planet, Sagittarius A*, and bright-star markers.
+- Split JavaScript and CSS into `src/app.js` and `src/styles.css`.
+- Added lightweight astronomy tests.
+- Reworked orientation naming around quaternions and 3DoF attitude instead of loose alpha/beta/gamma axis language.
 - Added a clear error state when Three.js fails to load.
 - Reworked the script into named functions for easier maintenance.
 - Improved small-screen overlay behavior.
 
 ## Development notes
 
-The app is deliberately kept as one file so it can be served anywhere. If it grows, the likely next steps are:
+The app is deliberately kept static so it can be served anywhere. Good next steps are:
 
-- Move JavaScript into `src/app.js`.
-- Move styles into `src/styles.css`.
 - Add a local copy of Three.js for offline use.
-- Add automated checks for the astronomy conversion functions.
-- Add a simple UI toggle for showing or hiding debug overlays.
 - Replace the procedural starfield with a compact star catalog such as Hipparcos/Bright Star Catalog data.
+
+## Tests
+
+The app itself does not require Node or npm. For development, run the current astronomy checks with:
+
+```sh
+node tests/astronomy.test.js
+```
+
+If npm is available, `npm test` runs the same command. These checks are for development only and are not part of the GitHub Pages runtime.
 
 ## License
 
