@@ -15,7 +15,7 @@ The app is static and dependency-light: `index.html` loads `src/styles.css` and 
 - Uses the Generic Sensor API `AbsoluteOrientationSensor` when available and permitted.
 - Falls back to `DeviceOrientationEvent` on browsers that support it.
 - Provides manual latitude, longitude, and orientation overrides for desktop testing.
-- Provides manual alignment controls for North and Sun-based calibration.
+- Provides a single North-based calibration control.
 - Provides a debug overlay toggle for raw sky/orientation values.
 
 ## Repository structure
@@ -79,7 +79,7 @@ If you need offline use, download that file and update the script tag in `index.
 2. Allow location access when prompted.
 3. On iOS or other permission-gated browsers, tap "Grant Sensor Access" if the prompt appears.
 4. Hold the phone flat with the screen facing up, and keep the same portrait/landscape orientation while using it.
-5. Calibrate with `Top Edge to North`, `Top Edge to Sun`, or `Use Current Hold`.
+5. Point the top edge of the phone north and tap `Calibrate to North`.
 6. Watch the target panel for Galactic Center and Sun azimuth/altitude.
 7. Use the green pointer as the estimated direction to the Galactic Center.
 8. Drag the scene to look around. Use the mouse wheel to zoom on desktop.
@@ -137,22 +137,21 @@ Ordinary browser motion APIs do not provide reliable world position. This app th
 - `DeviceOrientationEvent` provides Euler angles named `alpha`, `beta`, and `gamma`; these are treated as a browser fallback format and converted into a quaternion before the app uses them.
 - Manual overrides use yaw, pitch, and roll fields to create a quaternion for desktop testing.
 
-The pointer and sky markers use that quaternion to transform world-space sky vectors into the current device-relative frame. Manual North/Sun alignment applies an additional correction quaternion on top.
+The pointer and sky markers use that quaternion to transform world-space sky vectors into the current device-relative frame. North calibration applies an additional correction quaternion on top.
+
+Rendered orientation is smoothed toward sensor readings with a maximum rotation speed so a noisy packet, calibration change, or browser screen-orientation adjustment does not cause an instant visual jump.
 
 ## Manual alignment
 
-Mobile orientation sensors can drift or disagree across browsers. The calibration controls apply a correction offset.
+Mobile orientation sensors can drift or disagree across browsers. The North calibration control applies a correction offset.
 
 - Hold the phone flat, screen up.
+- Point the top edge of the phone north.
 - Keep the same portrait/landscape orientation after calibrating.
-- `Top Edge to North`: use this when the top edge of the phone is physically aimed north.
-- `Top Edge to Sun`: use this when the top edge of the phone is physically aimed at the Sun.
-- `Use Current Hold`: treats the current phone orientation as the neutral/default frame.
+- `Calibrate to North`: use this when the top edge of the phone is physically aimed north.
 - `Reset Align`: clears the correction offset.
 
-Sun alignment is only available when location is known and the Sun is above or near the horizon.
-
-The top-edge alignment buttons use the device's top edge axis, not the camera/forward axis. That means "Top Edge to North" means exactly what it says: point the top of the phone toward north, then tap the button. If the browser changes between portrait and landscape, recalibrate.
+The calibration button uses the device's top edge axis, not the camera/forward axis. That means "Calibrate to North" means exactly what it says: point the top of the phone toward north, then tap the button. If the browser changes between portrait and landscape, recalibrate.
 
 ## Coordinate model
 
@@ -193,7 +192,7 @@ For best results:
 - Use the app outdoors.
 - Keep the device away from magnetic cases, cars, and electronics.
 - Calibrate your phone compass if your operating system asks.
-- Use manual North or Sun alignment before relying on the pointer.
+- Calibrate to North before relying on the pointer.
 
 ## Recent fixes
 

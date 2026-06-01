@@ -6,6 +6,8 @@ const DEG_TO_RAD = Math.PI / 180;
         const STAR_COUNT = 15000;
         const STAR_RADIUS = 400;
         const MARKER_DISTANCE = 18;
+        const ORIENTATION_SMOOTHING_SPEED = 10;
+        const MAX_ORIENTATION_STEP_RAD = 3.2;
         const BRIGHT_STARS = [
             { name: "Sirius", ra: 101.287, dec: -16.716, color: 0xbdd7ff },
             { name: "Canopus", ra: 95.988, dec: -52.696, color: 0xfff0c5 },
@@ -137,6 +139,8 @@ const DEG_TO_RAD = Math.PI / 180;
         let lastCalcTime = 0;
         let statusTimeout = null;
         let deviceToWorldQuaternion;
+        let targetDeviceToWorldQuaternion;
+        let hasOrientationTarget = false;
         let manualAlignmentOffset;
         let galacticCenterAzAlt = { azimuth: 0, altitude: 0 };
         let sunAzAlt = { azimuth: 0, altitude: 0 };
@@ -177,8 +181,6 @@ const DEG_TO_RAD = Math.PI / 180;
             permissions: document.getElementById("permissions"),
             permissionButton: document.getElementById("permissionButton"),
             alignNorth: document.getElementById("align-north-button"),
-            alignSun: document.getElementById("align-sun-button"),
-            setDefaultPose: document.getElementById("set-default-pose-button"),
             resetAlignment: document.getElementById("reset-alignment-button"),
             resetView: document.getElementById("reset-view-button"),
             toggleDebug: document.getElementById("toggle-debug-button")
@@ -192,6 +194,7 @@ const DEG_TO_RAD = Math.PI / 180;
             }
 
             deviceToWorldQuaternion = new THREE.Quaternion();
+            targetDeviceToWorldQuaternion = new THREE.Quaternion();
             manualAlignmentOffset = new THREE.Quaternion().identity();
             animationClock = new THREE.Clock();
 
@@ -380,9 +383,7 @@ const DEG_TO_RAD = Math.PI / 180;
         function bindControls() {
             dom.overrideCheckbox.addEventListener("change", handleOverrideToggle);
             dom.applyOverrides.addEventListener("click", applyOverrides);
-            dom.alignNorth.addEventListener("click", () => setManualAlignment("North"));
-            dom.alignSun.addEventListener("click", () => setManualAlignment("Sun"));
-            dom.setDefaultPose.addEventListener("click", setDefaultPose);
+            dom.alignNorth.addEventListener("click", calibrateTopEdgeToNorth);
             dom.resetAlignment.addEventListener("click", resetManualAlignment);
             dom.resetView.addEventListener("click", resetView);
             dom.toggleDebug.addEventListener("click", toggleDebugPanels);
@@ -629,8 +630,7 @@ const DEG_TO_RAD = Math.PI / 180;
             dom.sensorB.textContent = (euler.x * RAD_TO_DEG).toFixed(1);
             dom.sensorG.textContent = (euler.y * RAD_TO_DEG).toFixed(1);
 
-            deviceToWorldQuaternion.copy(rawOrientation);
-            applyManualAlignmentOffset();
+            setOrientationTarget(rawOrientation);
         }
 
         function handleDOEReading(event) {
@@ -649,8 +649,7 @@ const DEG_TO_RAD = Math.PI / 180;
             dom.sensorB.textContent = event.beta.toFixed(1);
             dom.sensorG.textContent = event.gamma.toFixed(1);
 
-            deviceToWorldQuaternion.copy(deviceOrientationEventToQuaternion(event.alpha, event.beta, event.gamma));
-            applyManualAlignmentOffset();
+            setOrientationTarget(deviceOrientationEventToQuaternion(event.alpha, event.beta, event.gamma));
 
             if (!dom.overrideA.value) dom.overrideA.value = event.alpha.toFixed(1);
             if (!dom.overrideB.value) dom.overrideB.value = event.beta.toFixed(1);
@@ -693,7 +692,7 @@ const DEG_TO_RAD = Math.PI / 180;
 
             userLocation = { latitude: lat, longitude: lon };
             locationReady = true;
-            deviceToWorldQuaternion.copy(manualYawPitchRollToQuaternion(yaw, pitch, roll));
+            setOrientationTarget(manualYawPitchRollToQuaternion(yaw, pitch, roll));
             dom.loc.textContent = `${formatLocation(userLocation)} override`;
             calculateCelestialPositions();
             showStatus("Override values applied.", true);
@@ -896,30 +895,14 @@ const DEG_TO_RAD = Math.PI / 180;
             return normalizeDegrees(gmstHours * 15 + lon);
         }
 
-        function setManualAlignment(targetType) {
+        function calibrateTopEdgeToNorth() {
             const currentRawOrientation = readCurrentRawOrientation();
             if (!currentRawOrientation) {
-                showStatus("Activate sensors or overrides before aligning.", true);
+                showStatus("Activate sensors or overrides before calibrating.", true);
                 return;
             }
 
-            let targetVectorWorld;
-            if (targetType === "North") {
-                targetVectorWorld = new THREE.Vector3(0, 0, 1);
-            } else if (targetType === "Sun") {
-                if (!locationReady) {
-                    showStatus("Location is needed for Sun alignment.", true);
-                    return;
-                }
-                if (sunAzAlt.altitude < -2) {
-                    showStatus("The Sun is too low for alignment right now.", true);
-                    return;
-                }
-                targetVectorWorld = azAltToVector(sunAzAlt.azimuth, sunAzAlt.altitude);
-            } else {
-                return;
-            }
-
+            const targetVectorWorld = new THREE.Vector3(0, 0, 1);
             const currentTopWorld = deviceTopAxis().applyQuaternion(currentRawOrientation).normalize();
             const correction = new THREE.Quaternion().setFromUnitVectors(currentTopWorld, targetVectorWorld.normalize());
             manualAlignmentOffset.copy(correction);
@@ -927,38 +910,22 @@ const DEG_TO_RAD = Math.PI / 180;
             calibrationScreenAngle = getScreenOrientationAngle();
             hasWarnedScreenOrientationChange = false;
             dom.resetAlignment.disabled = false;
-            dom.alignmentStatus.textContent = `${targetType} Aligned`;
-            deviceToWorldQuaternion.copy(currentRawOrientation);
-            applyManualAlignmentOffset();
-            showStatus(`Top-edge alignment set to ${targetType}.`, true);
-        }
-
-        function setDefaultPose() {
-            const currentRawOrientation = readCurrentRawOrientation();
-            if (!currentRawOrientation) {
-                showStatus("Activate sensors or overrides before setting a default pose.", true);
-                return;
-            }
-
-            manualAlignmentOffset.copy(currentRawOrientation.clone().conjugate());
-            isAlignmentActive = true;
-            calibrationScreenAngle = getScreenOrientationAngle();
-            hasWarnedScreenOrientationChange = false;
-            dom.resetAlignment.disabled = false;
-            dom.alignmentStatus.textContent = "Default Pose";
-            deviceToWorldQuaternion.copy(currentRawOrientation);
-            applyManualAlignmentOffset();
-            resetView();
-            showStatus("Current pose is now the default orientation.", true);
+            dom.alignmentStatus.textContent = "North Calibrated";
+            setOrientationTarget(currentRawOrientation);
+            showStatus("Calibrated: top edge is north.", true);
         }
 
         function resetManualAlignment() {
+            const currentRawOrientation = readCurrentRawOrientation();
             manualAlignmentOffset.identity();
             isAlignmentActive = false;
             calibrationScreenAngle = null;
             hasWarnedScreenOrientationChange = false;
             dom.resetAlignment.disabled = true;
             dom.alignmentStatus.textContent = "Needed";
+            if (currentRawOrientation) {
+                setOrientationTarget(currentRawOrientation);
+            }
             showStatus("Manual alignment reset.", true);
         }
 
@@ -1060,7 +1027,7 @@ const DEG_TO_RAD = Math.PI / 180;
 
         function animate() {
             requestAnimationFrame(animate);
-            animationClock.getDelta();
+            const delta = Math.min(animationClock.getDelta(), 0.05);
 
             const now = performance.now();
             if (locationReady && !overridesEnabled && now - lastCalcTime > 5000) {
@@ -1068,6 +1035,7 @@ const DEG_TO_RAD = Math.PI / 180;
                 lastCalcTime = now;
             }
 
+            updateSmoothedOrientation(delta);
             updateNeedleRotation();
             updateCelestialMarkers();
             updateMarkerBillboards();
@@ -1128,9 +1096,37 @@ const DEG_TO_RAD = Math.PI / 180;
             return Number.isFinite(window.orientation) ? window.orientation : 0;
         }
 
-        function applyManualAlignmentOffset() {
+        function setOrientationTarget(rawDeviceToWorldQuaternion, snap = false) {
+            targetDeviceToWorldQuaternion.copy(rawDeviceToWorldQuaternion);
+            applyManualAlignmentOffset(targetDeviceToWorldQuaternion);
+            targetDeviceToWorldQuaternion.normalize();
+
+            if (!hasOrientationTarget || snap) {
+                deviceToWorldQuaternion.copy(targetDeviceToWorldQuaternion);
+                hasOrientationTarget = true;
+                return;
+            }
+
+            hasOrientationTarget = true;
+        }
+
+        function updateSmoothedOrientation(delta) {
+            if (!hasOrientationTarget) return;
+
+            const angle = deviceToWorldQuaternion.angleTo(targetDeviceToWorldQuaternion);
+            if (angle < 0.0005) {
+                deviceToWorldQuaternion.copy(targetDeviceToWorldQuaternion);
+                return;
+            }
+
+            const easedStep = 1 - Math.exp(-ORIENTATION_SMOOTHING_SPEED * delta);
+            const cappedStep = Math.min(1, (MAX_ORIENTATION_STEP_RAD * delta) / angle);
+            deviceToWorldQuaternion.slerp(targetDeviceToWorldQuaternion, Math.min(easedStep, cappedStep));
+        }
+
+        function applyManualAlignmentOffset(quaternion) {
             if (isAlignmentActive) {
-                deviceToWorldQuaternion.premultiply(manualAlignmentOffset);
+                quaternion.premultiply(manualAlignmentOffset);
             }
         }
 
@@ -1240,7 +1236,7 @@ const DEG_TO_RAD = Math.PI / 180;
         }
 
         function showHoldCalibrationPrompt(prefix) {
-            showStatus(`${prefix} Hold phone flat, screen up, top edge toward north or the Sun, then tap a calibration button.`, false);
+            showStatus(`${prefix} Hold phone flat, screen up, top edge toward north, then tap Calibrate to North.`, false);
         }
 
         function clearStatus() {
