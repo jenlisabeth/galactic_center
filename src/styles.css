@@ -123,11 +123,18 @@ input[type="number"] {
             display: none;
         }
 
-        .panel.collapsed .panel-header {
-            margin-bottom: -2px;
-        }
+.panel.collapsed .panel-header {
+    margin-bottom: -2px;
+}
 
-        .value {
+.panel-note {
+    max-width: 280px;
+    margin: 0 0 7px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.value {
             color: var(--accent);
             font-variant-numeric: tabular-nums;
         }

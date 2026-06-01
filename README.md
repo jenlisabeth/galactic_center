@@ -78,9 +78,11 @@ If you need offline use, download that file and update the script tag in `index.
 1. Open the page on a phone or desktop browser.
 2. Allow location access when prompted.
 3. On iOS or other permission-gated browsers, tap "Grant Sensor Access" if the prompt appears.
-4. Watch the target panel for Galactic Center and Sun azimuth/altitude.
-5. Use the green pointer as the estimated direction to the Galactic Center.
-6. Drag the scene to look around. Use the mouse wheel to zoom on desktop.
+4. Hold the phone flat with the screen facing up, and keep the same portrait/landscape orientation while using it.
+5. Calibrate with `Top Edge to North`, `Top Edge to Sun`, or `Use Current Hold`.
+6. Watch the target panel for Galactic Center and Sun azimuth/altitude.
+7. Use the green pointer as the estimated direction to the Galactic Center.
+8. Drag the scene to look around. Use the mouse wheel to zoom on desktop.
 
 On desktop, most browsers do not provide real orientation sensor data. The pointer will still render and the calculated sky positions will still update, but device-relative pointing will be limited unless you use manual overrides.
 
@@ -139,16 +141,18 @@ The pointer and sky markers use that quaternion to transform world-space sky vec
 
 ## Manual alignment
 
-Mobile orientation sensors can drift or disagree across browsers. The alignment controls apply a correction offset:
+Mobile orientation sensors can drift or disagree across browsers. The calibration controls apply a correction offset.
 
-- `Align Top to North`: use this when the top of the phone is physically aimed north.
-- `Align Top to Sun`: use this when the top of the phone is physically aimed at the Sun.
-- `Set Default Pose`: treats the current phone orientation as the neutral/default frame.
+- Hold the phone flat, screen up.
+- Keep the same portrait/landscape orientation after calibrating.
+- `Top Edge to North`: use this when the top edge of the phone is physically aimed north.
+- `Top Edge to Sun`: use this when the top edge of the phone is physically aimed at the Sun.
+- `Use Current Hold`: treats the current phone orientation as the neutral/default frame.
 - `Reset Align`: clears the correction offset.
 
 Sun alignment is only available when location is known and the Sun is above or near the horizon.
 
-The top-edge alignment buttons now use the device's top edge axis, not the camera/forward axis. That means "Align Top to North" means exactly what it says: point the top of the phone toward north, then tap the button.
+The top-edge alignment buttons use the device's top edge axis, not the camera/forward axis. That means "Top Edge to North" means exactly what it says: point the top of the phone toward north, then tap the button. If the browser changes between portrait and landscape, recalibrate.
 
 ## Coordinate model
 

@@ -132,6 +132,8 @@ const DEG_TO_RAD = Math.PI / 180;
         let overridesEnabled = false;
         let orientationSensor = null;
         let isAlignmentActive = false;
+        let calibrationScreenAngle = null;
+        let hasWarnedScreenOrientationChange = false;
         let lastCalcTime = 0;
         let statusTimeout = null;
         let deviceToWorldQuaternion;
@@ -390,6 +392,10 @@ const DEG_TO_RAD = Math.PI / 180;
             renderer.domElement.addEventListener("pointerup", handleViewPointerUp);
             renderer.domElement.addEventListener("pointercancel", handleViewPointerUp);
             renderer.domElement.addEventListener("wheel", handleViewWheel, { passive: false });
+            window.addEventListener("orientationchange", handleScreenOrientationChange);
+            if (screen.orientation) {
+                screen.orientation.addEventListener("change", handleScreenOrientationChange);
+            }
         }
 
         function initializeOverlayPanels() {
@@ -507,7 +513,7 @@ const DEG_TO_RAD = Math.PI / 180;
                 hasDeviceOrientationData = true;
                 dom.sensorStats.style.display = "block";
                 updateModeDisplay("Mobile (AOS)");
-                showStatus("Using AbsoluteOrientationSensor.", true);
+                showHoldCalibrationPrompt("Using AbsoluteOrientationSensor.");
             } catch (error) {
                 console.warn("AbsoluteOrientationSensor failed:", error);
                 setupDeviceOrientationFallback();
@@ -635,7 +641,7 @@ const DEG_TO_RAD = Math.PI / 180;
                 hasDeviceOrientationData = true;
                 dom.sensorStats.style.display = "block";
                 updateModeDisplay("Mobile (DOE)");
-            showStatus("Using DeviceOrientationEvent attitude data. Align to North or Sun if the compass drifts.", true);
+                showHoldCalibrationPrompt("Using DeviceOrientationEvent attitude data.");
             }
 
             dom.sensorAbs.textContent = event.absolute ? "Euler angles (absolute DOE)" : "Euler angles (relative DOE)";
@@ -918,6 +924,8 @@ const DEG_TO_RAD = Math.PI / 180;
             const correction = new THREE.Quaternion().setFromUnitVectors(currentTopWorld, targetVectorWorld.normalize());
             manualAlignmentOffset.copy(correction);
             isAlignmentActive = true;
+            calibrationScreenAngle = getScreenOrientationAngle();
+            hasWarnedScreenOrientationChange = false;
             dom.resetAlignment.disabled = false;
             dom.alignmentStatus.textContent = `${targetType} Aligned`;
             deviceToWorldQuaternion.copy(currentRawOrientation);
@@ -934,6 +942,8 @@ const DEG_TO_RAD = Math.PI / 180;
 
             manualAlignmentOffset.copy(currentRawOrientation.clone().conjugate());
             isAlignmentActive = true;
+            calibrationScreenAngle = getScreenOrientationAngle();
+            hasWarnedScreenOrientationChange = false;
             dom.resetAlignment.disabled = false;
             dom.alignmentStatus.textContent = "Default Pose";
             deviceToWorldQuaternion.copy(currentRawOrientation);
@@ -945,9 +955,27 @@ const DEG_TO_RAD = Math.PI / 180;
         function resetManualAlignment() {
             manualAlignmentOffset.identity();
             isAlignmentActive = false;
+            calibrationScreenAngle = null;
+            hasWarnedScreenOrientationChange = false;
             dom.resetAlignment.disabled = true;
-            dom.alignmentStatus.textContent = "Inactive";
+            dom.alignmentStatus.textContent = "Needed";
             showStatus("Manual alignment reset.", true);
+        }
+
+        function handleScreenOrientationChange() {
+            if (!isAlignmentActive || calibrationScreenAngle === null) return;
+
+            const currentAngle = getScreenOrientationAngle();
+            if (currentAngle === calibrationScreenAngle) {
+                hasWarnedScreenOrientationChange = false;
+                return;
+            }
+
+            dom.alignmentStatus.textContent = "Recalibrate";
+            if (!hasWarnedScreenOrientationChange) {
+                showStatus("Screen orientation changed. Hold the phone the same way and recalibrate.", false);
+                hasWarnedScreenOrientationChange = true;
+            }
         }
 
         function readCurrentRawOrientation() {
@@ -1209,6 +1237,10 @@ const DEG_TO_RAD = Math.PI / 180;
             if (temporary) {
                 statusTimeout = setTimeout(clearStatus, 4000);
             }
+        }
+
+        function showHoldCalibrationPrompt(prefix) {
+            showStatus(`${prefix} Hold phone flat, screen up, top edge toward north or the Sun, then tap a calibration button.`, false);
         }
 
         function clearStatus() {

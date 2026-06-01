@@ -6,7 +6,7 @@
     <title>Galactic Center Compass</title>
     <link rel="stylesheet" href="src/styles.css">
 </head>
-<body>
+<body class="debug-hidden">
     <div id="container"></div>
 
     <div id="status" class="ui-overlay" role="status" aria-live="polite"></div>
@@ -16,8 +16,8 @@
         <b>Device Info</b>
         Location: <span id="loc" class="value">Waiting...</span><br>
         Mode: <span id="mode" class="value">Starting</span><br>
-        Alignment: <span id="alignment-status" class="value">Inactive</span><br>
-        <button id="toggle-debug-button" type="button">Hide Debug</button>
+        Calibration: <span id="alignment-status" class="value">Needed</span><br>
+        <button id="toggle-debug-button" type="button">Show Debug</button>
     </div>
 
     <div id="celestial-info" class="ui-overlay debug-panel">
@@ -38,11 +38,12 @@
     </div>
 
     <div id="calibration" class="ui-overlay">
-        <b>Manual Alignment</b>
+        <b>Calibration</b>
+        <p class="panel-note">Hold phone flat, screen up. Keep this same portrait/landscape orientation after calibrating.</p>
         <div class="button-row">
-            <button id="align-north-button" type="button">Align Top to North</button>
-            <button id="align-sun-button" type="button">Align Top to Sun</button>
-            <button id="set-default-pose-button" type="button">Set Default Pose</button>
+            <button id="align-north-button" type="button">Top Edge to North</button>
+            <button id="align-sun-button" type="button">Top Edge to Sun</button>
+            <button id="set-default-pose-button" type="button">Use Current Hold</button>
             <button id="reset-alignment-button" type="button" disabled>Reset Align</button>
             <button id="reset-view-button" type="button">Reset View</button>
         </div>
